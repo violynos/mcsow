@@ -18,6 +18,7 @@ public abstract class PlayerEntityMixin {
     @Inject(method = "travel", at = @At("HEAD"), cancellable = true)
     private void mcsow$onTravel(Vec3d movementInput, CallbackInfo ci) {
         PlayerEntity self = (PlayerEntity)(Object)this;
+        if (!WarsowPmove.isEnabled()) return;
         if (self.isSpectator() || self.getAbilities().flying) return;
         if (self.hasVehicle()) return;
         if (self.isGliding()) return;

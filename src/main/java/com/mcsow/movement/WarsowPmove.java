@@ -7,6 +7,12 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 public final class WarsowPmove {
+    private static boolean enabled = true;
+
+    public static boolean isEnabled() { return enabled; }
+
+    public static void setEnabled(boolean e) { enabled = e; }
+
     // --- pmove constants ---
     public static final int    PM_DASHJUMP_TIMEDELAY         = 1000;
     public static final int    PM_WALLJUMP_TIMEDELAY          = 1300;
