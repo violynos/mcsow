@@ -1,6 +1,6 @@
 package com.mcsow.movement;
 
-import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.MovementType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
@@ -68,91 +68,24 @@ public final class WarsowPmove {
     public static void move(PlayerEntity player, boolean specialKeyDown,
                              boolean jumpPressed, boolean crouchPressed,
                              float fwdPush, float sidePush) {
-        PlayerMoveState s = state(player);
-        float ft = 0.05f;
-
-        // view vectors
+        float speed = 0.3f;
         float yawRad = player.getYaw() * MathHelper.RADIANS_PER_DEGREE;
-        float pitchRad = player.getPitch() * MathHelper.RADIANS_PER_DEGREE;
         float sy = MathHelper.sin(yawRad);
         float cy = MathHelper.cos(yawRad);
-        float sp = MathHelper.sin(pitchRad);
-        float cp = MathHelper.cos(pitchRad);
 
-        Vec3d forward  = new Vec3d(-sy * cp, sp, cy * cp).normalize();
-        Vec3d right    = new Vec3d(cy, 0, sy).normalize();
-        Vec3d flatFwd  = new Vec3d(-sy, 0, cy).normalize();
+        float f = fwdPush > 0.01f ? 1 : (fwdPush < -0.01f ? -1 : 0);
+        float s = sidePush > 0.01f ? 1 : (sidePush < -0.01f ? -1 : 0);
 
-        // max speeds
-        float maxSpeed = DEFAULT_PLAYERSPEED;
-        float walkSpeed = Math.min(DEFAULT_WALKSPEED, maxSpeed * 0.66f);
-        float crouchSpeed = Math.min(DEFAULT_CROUCHEDSPEED, maxSpeed * 0.5f);
+        double vx = -sy * f * speed + cy * s * speed;
+        double vz =  cy * f * speed + sy * s * speed;
+        double vy = 0;
 
-        // tick timers
-        if (s.dashTime > 0)     s.dashTime     = Math.max(0, s.dashTime - 50);
-        if (s.walljumpTime > 0) s.walljumpTime = Math.max(0, s.walljumpTime - 50);
+        if (jumpPressed)   vy = 0.4;
+        if (crouchPressed) vy = -0.4;
 
-        // crouch
-        if (crouchPressed
-            && s.walljumpTime < (PM_WALLJUMP_TIMEDELAY - PM_SPECIAL_CROUCH_INHIBIT)
-            && s.dashTime     < (PM_DASHJUMP_TIMEDELAY - PM_SPECIAL_CROUCH_INHIBIT)) {
-            s.crouchTime = Math.min(CROUCHTIME, s.crouchTime + 50);
-        } else if (!crouchPressed && s.crouchTime > 0) {
-            Box standBox = player.getBoundingBox()
-                .withMinY(player.getY())
-                .withMaxY(player.getY() + 1.8);
-            if (player.getEntityWorld().isSpaceEmpty(player, standBox)) {
-                s.crouchTime = Math.max(0, s.crouchTime - 50);
-            }
-        }
-
-        boolean onGround = player.isOnGround();
-        Vec3d vel = player.getVelocity();
-
-        // jump
-        vel = checkJump(vel, s, onGround, jumpPressed);
-
-        // dash
-        vel = checkDash(vel, s, onGround, specialKeyDown, flatFwd, right, fwdPush, sidePush);
-
-        // walljump
-        vel = checkWalljump(player, vel, s, onGround, specialKeyDown);
-
-        // friction
-        if (onGround && !player.isTouchingWater()) {
-            vel = applyFriction(vel, ft);
-        }
-
-        // wish direction from input
-        Vec3d wishvel = new Vec3d(
-            forward.x * fwdPush + right.x * sidePush,
-            0,
-            forward.z * fwdPush + right.z * sidePush
-        );
-        double rawWish = wishvel.length();
-        Vec3d wishdir = rawWish > 0.001 ? wishvel.normalize() : Vec3d.ZERO;
-        float wishspeed = (float) rawWish;
-
-        float cap = s.crouchTime > 0 ? crouchSpeed : (crouchPressed ? walkSpeed : maxSpeed);
-        if (wishspeed > cap) wishspeed = cap;
-
-        // --- movement type dispatch ---
-        if (player.isTouchingWater()) {
-            vel = waterMove(vel, forward, right, fwdPush, sidePush, maxSpeed, ft);
-        } else if (onGround) {
-            vel = groundMove(vel, wishdir, wishspeed, ft);
-        } else {
-            vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, s, ft, maxSpeed);
-        }
-
-        // snap small components
-        vel = new Vec3d(
-            Math.abs(vel.x) < 0.005 ? 0 : vel.x,
-            Math.abs(vel.y) < 0.005 ? 0 : vel.y,
-            Math.abs(vel.z) < 0.005 ? 0 : vel.z
-        );
-
-        player.setVelocity(vel);
+        Vec3d delta = new Vec3d(vx, vy, vz);
+        player.setVelocity(delta);
+        player.move(MovementType.SELF, delta);
     }
 
     // ================================================================
