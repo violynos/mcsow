@@ -1,0 +1,30 @@
+{
+    "schemaVersion": 1,
+    "id": "mcsow",
+    "version": "${version}",
+    "name": "McSow",
+    "description": "Warsow movement for Minecraft - dash, walljump, bunnyhop, and more!",
+    "authors": [
+        "vio"
+    ],
+    "contact": {},
+    "license": "GPL-2.0",
+    "icon": "assets/mcsow/icon.png",
+    "environment": "*",
+    "entrypoints": {
+        "client": [
+            "com.mcsow.McSowClientMod"
+        ],
+        "main": [
+            "com.mcsow.McSowMod"
+        ]
+    },
+    "mixins": [
+        "mcsow.mixins.json"
+    ],
+    "depends": {
+        "fabricloader": ">=0.16.0",
+        "minecraft": ">=1.21.11",
+        "fabric-api": "*"
+    }
+}
