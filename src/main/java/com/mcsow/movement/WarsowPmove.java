@@ -102,8 +102,10 @@ public final class WarsowPmove {
     // clamped direction opens up (corner-skip) or a crouch-jump happens
     private static final int    WALL_BUFFER_FRAMES   = 2;
 
-    // max ledge height (MC blocks) we auto-step up onto (0.56 catches slabs + a bit)
-    private static final double STEP_UP_HEIGHT       = 0.56;
+    // max ledge height (MC blocks) we auto-step up onto — 0.56 while grounded, 0.6
+    // (MC's default step height) mid-air
+    private static final double STEP_UP_HEIGHT_GROUND = 0.56;
+    private static final double STEP_UP_HEIGHT_AIR    = 0.6;
     // how far below the feet a surface may be for step-up to apply (so it works mid-air)
     private static final double STEP_GROUND_DROP     = 1.0;
 
@@ -295,7 +297,8 @@ public final class WarsowPmove {
         // speed instead of clamping — so stepping onto slabs/edges is smooth. Works
         // mid-air (not just grounded), as long as there's ground close below.
         if ((blockedX || blockedZ) && hasGroundBelow(player)) {
-            double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0);
+            double maxStep = player.isOnGround() ? STEP_UP_HEIGHT_GROUND : STEP_UP_HEIGHT_AIR;
+            double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, maxStep);
             if (step > 0) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
                 player.setOnGround(true);
@@ -615,14 +618,14 @@ public final class WarsowPmove {
     // blocks) to rise; otherwise 0. Probes into the blocked direction: the obstacle must
     // be present at foot height but clear at some height ≤ STEP_UP_HEIGHT (so a full-height
     // wall returns 0, but a slab returns ~0.5).
-    private static double tryStepUp(PlayerEntity player, double dirX, double dirZ) {
+    private static double tryStepUp(PlayerEntity player, double dirX, double dirZ, double maxHeight) {
         if (dirX == 0 && dirZ == 0) return 0;
         Box box = player.getBoundingBox();
         double hx = dirX != 0 ? Math.copySign(0.3, dirX) : 0;
         double hz = dirZ != 0 ? Math.copySign(0.3, dirZ) : 0;
         // must actually be blocked in that direction at current height
         if (isFree(player, box.offset(hx, 0, hz))) return 0;
-        for (double h = 0.05; h <= STEP_UP_HEIGHT + 1.0e-6; h += 0.05) {
+        for (double h = 0.05; h <= maxHeight + 1.0e-6; h += 0.05) {
             if (isFree(player, box.offset(hx, h, hz))) return h;
         }
         return 0;
