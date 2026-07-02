@@ -1,5 +1,6 @@
 package com.mcsow;
 
+import com.mcsow.hud.StrafeHud;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -25,6 +26,8 @@ public class McSowClientMod implements ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register(client -> {
             specialPressed = specialKey.isPressed();
         });
+
+        StrafeHud.register();
     }
 
     public static boolean isSpecialDown() {

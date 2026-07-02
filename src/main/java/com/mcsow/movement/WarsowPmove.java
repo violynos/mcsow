@@ -143,6 +143,8 @@ public final class WarsowPmove {
         boolean crouchSliding;
         boolean wasInAir;
         boolean jumped;
+        double lastHudSpeed;     // strafe HUD: previous-tick horizontal speed (for accel)
+        double hudAccel;         // strafe HUD: speed change this tick (>0 gaining, <0 losing)
     }
 
     private static PlayerMoveState state(PlayerEntity p) {
@@ -151,6 +153,27 @@ public final class WarsowPmove {
 
     public static void clear(PlayerEntity p) {
         STATES.remove(p.getId());
+    }
+
+    // ---- strafe HUD accessors (Warsow units; a dash ≈ 450, same as Warfork) ----
+    public static double getHudSpeed(PlayerEntity p) {
+        PlayerMoveState s = STATES.get(p.getId());
+        if (s == null) return 0;
+        return Math.sqrt(s.velocity.x * s.velocity.x + s.velocity.z * s.velocity.z);
+    }
+
+    public static double getHudAccel(PlayerEntity p) {
+        PlayerMoveState s = STATES.get(p.getId());
+        return s == null ? 0 : s.hudAccel;
+    }
+
+    // Velocity direction as an MC yaw (degrees); NaN if essentially not moving.
+    public static double getHudVelYaw(PlayerEntity p) {
+        PlayerMoveState s = STATES.get(p.getId());
+        if (s == null) return Double.NaN;
+        double vx = s.velocity.x, vz = s.velocity.z;
+        if (vx * vx + vz * vz < 1.0) return Double.NaN;
+        return Math.toDegrees(Math.atan2(-vx, vz));
     }
 
     // Keep our internal (Warsow-unit) velocity aligned with the player's real MC
@@ -315,6 +338,11 @@ public final class WarsowPmove {
         // ---- walljump detection: predict a next-frame wall collision from this frame's
         //      velocity, set eligibility + save the into-wall velocity for tryWalljump. ----
         updateWallEligibility(player, s, vel);
+
+        // ---- strafe HUD: horizontal speed + this tick's accel (speed change) ----
+        double hudSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        s.hudAccel = hudSpeed - s.lastHudSpeed;
+        s.lastHudSpeed = hudSpeed;
 
         // ---- apply to entity (Warsow units → MC blocks via UNIT_SCALE) ----
         // MC's move() sweeps collisions and stops us flush against blocks. We then

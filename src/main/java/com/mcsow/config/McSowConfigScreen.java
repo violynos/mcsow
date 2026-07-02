@@ -30,6 +30,13 @@ public final class McSowConfigScreen {
                 .setTooltip(Text.literal("Master switch. When off, vanilla Minecraft movement is used instead of Warsow physics."))
                 .setSaveConsumer(v -> cfg.enabled = v)
                 .build());
+        general.addEntry(eb.startBooleanToggle(Text.literal("Strafe HUD"), cfg.strafeHud)
+                .setDefaultValue(false)
+                .setTooltip(
+                    Text.literal("Show a strafe HUD overlay: your speed, a velocity-vs-view angle bar, and"),
+                    Text.literal("accel arrows that go green when you're gaining speed, red when losing it."))
+                .setSaveConsumer(v -> cfg.strafeHud = v)
+                .build());
 
         ConfigCategory air = builder.getOrCreateCategory(Text.literal("Air"));
         air.addEntry(eb.startFloatField(Text.literal("Air acceleration"), cfg.airAccelerate)
