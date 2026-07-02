@@ -629,15 +629,21 @@ public final class WarsowPmove {
         return player.getEntityWorld().isSpaceEmpty(player, box);
     }
 
-    // A real walljump wall must block BOTH the lower (feet) and upper (head) halves of the
-    // ~1.8-tall player when moved by (dx,dz) — so a slab at the feet or an overhang at the
-    // head isn't mistaken for a wall. A ≥1-block-tall wall spans both halves; low/high-only
-    // obstacles don't.
+    // A real walljump wall must block the player across their whole ~1.8-block height when
+    // moved by (dx,dz). Sample thin slices at feet, knee, waist, chest and top-of-head; a
+    // wall must be present at EVERY sample, so a slab (feet only), a fence/1-block wall
+    // (nothing at chest/head), or an overhang (head only) is not mistaken for a wall.
     private static boolean wallAt(PlayerEntity player, Box box, double dx, double dz) {
-        double midY = (box.minY + box.maxY) * 0.5;
-        Box feet = new Box(box.minX, box.minY, box.minZ, box.maxX, midY, box.maxZ);
-        Box head = new Box(box.minX, midY, box.minZ, box.maxX, box.maxY, box.maxZ);
-        return !isFree(player, feet.offset(dx, 0, dz)) && !isFree(player, head.offset(dx, 0, dz));
+        double e = 0.02;
+        double[] heights = {                 // feet, knee, waist, chest, top of head
+            box.minY, box.minY + 0.5, box.minY + 1.0, box.minY + 1.5, box.maxY
+        };
+        for (double y : heights) {
+            double lo = Math.min(y, box.maxY - e);   // keep the top slice inside the head
+            Box slice = new Box(box.minX, lo, box.minZ, box.maxX, lo + e, box.maxZ).offset(dx, 0, dz);
+            if (isFree(player, slice)) return false; // a gap at this height → not a full wall
+        }
+        return true;
     }
 
     // True if there's a solid surface within STEP_GROUND_DROP (1 block) below the feet
