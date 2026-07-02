@@ -2,7 +2,6 @@ package com.mcsow.movement;
 
 import net.minecraft.entity.MovementType;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
@@ -50,10 +49,8 @@ public final class WarsowPmove {
     private static final float PM_BACKTOSIDERATIO    = 0.8f;
     private static final float PM_FORWARD_ACCEL_TIMEDELAY = 0;
 
-    // dash / walljump
+    // dash
     public static final int    PM_DASHJUMP_TIMEDELAY        = 1000;
-    public static final int    PM_WALLJUMP_TIMEDELAY        = 1300;
-    public static final int    PM_WALLJUMP_FAILED_TIMEDELAY = 700;
     public static final int    PM_SPECIAL_CROUCH_INHIBIT    = 400;
     public static final int    PM_AIRCONTROL_BOUNCE_DELAY   = 200;
     public static final int    PM_CROUCHSLIDE_TIMEDELAY     = 700;
@@ -62,11 +59,6 @@ public final class WarsowPmove {
     public static final int    CROUCHTIME                   = 100;
 
     private static final float PM_DASHUPSPEED       = 174.0f * GRAVITY_COMPENSATE;
-    private static final float PM_WJUPSPEED          = 330.0f * GRAVITY_COMPENSATE;
-    private static final float PM_FAILEDWJUPSPEED    = 50.0f * GRAVITY_COMPENSATE;
-    private static final float PM_WJBOUNCEFACTOR     = 0.3f;
-    private static final float PM_FAILEDWJBOUNCEFACTOR = 0.1f;
-    private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f;
     private static final float PM_OVERBOUNCE         = 1.01f;
     private static final float STEPSIZE              = 18.0f;
     private static final float SPEEDKEY              = 500.0f;
@@ -78,9 +70,6 @@ public final class WarsowPmove {
         boolean jumpHeld;
         boolean specialHeld;
         int dashTime;
-        int walljumpTime;
-        boolean walljumpCount;
-        boolean walljumping;
         boolean dashing;
         int crouchTime;
         int forwardTime;
@@ -142,9 +131,7 @@ public final class WarsowPmove {
 
         // ---- if jumped this tick, skip dash entirely (no cooldown) ----
         boolean guard = s.jumped || (onGround && jumpPressed);
-        if (guard) {
-            // dash skipped; walljump won't fire because onGround is false after recheck
-        } else {
+        if (!guard) {
             // landing while holding R: reset dash state so it fires on contact
             if (justLanded && specialKeyDown) {
                 s.specialHeld = false;
@@ -278,15 +265,6 @@ public final class WarsowPmove {
         return vel;
     }
 
-    private static Vec3d clipVelocity(Vec3d vel, Vec3d normal, double overbounce) {
-        double dot = vel.dotProduct(normal);
-        return new Vec3d(
-            vel.x - dot * normal.x * overbounce,
-            vel.y - dot * normal.y * overbounce,
-            vel.z - dot * normal.z * overbounce
-        );
-    }
-
     // ================================================================
     //  FRICTION (Warsow PM_Friction)
     // ================================================================
@@ -329,8 +307,6 @@ public final class WarsowPmove {
         vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED, vel.z);
 
         s.dashTime = 0;
-        s.walljumpTime = 0;
-        s.walljumping = false;
         s.dashing = false;
         return vel;
     }
@@ -350,7 +326,6 @@ public final class WarsowPmove {
 
         s.specialHeld = true;
         s.dashing = true;
-        s.walljumping = false;
 
         float upSpeed = PM_DASHUPSPEED;
 
@@ -377,57 +352,6 @@ public final class WarsowPmove {
     }
 
     // ================================================================
-    //  WALLJUMP (Warsow PM_CheckWallJump)
-    // ================================================================
-    private static Vec3d checkWalljump(PlayerEntity player, Vec3d vel, PlayerMoveState s,
-                                        boolean onGround, boolean specialDown) {
-        if (!specialDown) s.specialHeld = false;
-        if (onGround) { s.walljumping = false; s.walljumpCount = false; }
-        if (s.walljumping && vel.y < 0) s.walljumping = false;
-        if (s.walljumpTime <= 0) s.walljumpCount = false;
-        if (s.dashing && s.dashTime > (PM_DASHJUMP_TIMEDELAY - 100)) return vel;
-        if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0) return vel;
-
-        Vec3d normal = findWallNormal(player, vel);
-        if (normal == null) return vel;
-
-        float oldUp = (float) vel.y;
-        Vec3d hv = new Vec3d(vel.x, 0, vel.z);
-        float hSpeed = (float) hv.length();
-
-        hv = clipVelocity(hv, normal, 1.0005f);
-        hv = hv.add(normal.x * PM_WJBOUNCEFACTOR, 0, normal.z * PM_WJBOUNCEFACTOR);
-        if (hSpeed < PM_WJMINSPEED) hSpeed = PM_WJMINSPEED;
-        hv = hv.normalize().multiply(hSpeed);
-
-        s.specialHeld = true;
-        s.walljumpCount = true;
-        s.walljumping = true;
-        s.dashing = false;
-        s.walljumpTime = PM_WALLJUMP_TIMEDELAY;
-
-        return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
-    }
-
-    private static Vec3d findWallNormal(PlayerEntity player, Vec3d vel) {
-        Box box = player.getBoundingBox();
-        double hw = box.getLengthX() / 2;
-        double hd = box.getLengthZ() / 2;
-        double velOffset = (Math.abs(vel.x) + Math.abs(vel.z)) * 0.015;
-
-        for (int i = 0; i < 12; i++) {
-            double angle = (2 * Math.PI / 12) * i;
-            double dx = Math.cos(angle) * (hw + velOffset + 0.1);
-            double dz = Math.sin(angle) * (hd + velOffset + 0.1);
-            Box probe = box.offset(dx, 0, dz);
-            if (!player.getEntityWorld().isSpaceEmpty(player, probe)) {
-                return new Vec3d(dx, 0, dz).normalize();
-            }
-        }
-        return null;
-    }
-
-    // ================================================================
     //  GROUND MOVE
     // ================================================================
     private static Vec3d groundMove(Vec3d vel, Vec3d wishdir, float wishspeed, float ft) {
@@ -443,7 +367,7 @@ public final class WarsowPmove {
                                   PlayerMoveState s, float ft, float maxSpeed) {
         float wishspeed2 = wishspeed;
         float accel = PM_AIRACCELERATE;
-        if (s.walljumping || s.dashing) accel = 0;
+        if (s.dashing) accel = 0;
 
         boolean strafeBunny = sidePush != 0 && fwdPush == 0;
         if (strafeBunny && wishspeed > PM_WISHSPEED) {
@@ -452,7 +376,7 @@ public final class WarsowPmove {
         }
 
         boolean accelerating = vel.dotProduct(wishdir) > 0;
-        boolean inhibit = s.walljumping || s.dashing;
+        boolean inhibit = s.dashing;
 
         boolean fwdBunny = true;
         if (s.forwardTime > 0) {
@@ -466,7 +390,7 @@ public final class WarsowPmove {
             vel = airAccelerate(vel, wishdir, wishspeed, maxSpeed, ft);
         } else {
             vel = accelerate(vel, wishdir, wishspeed, accel, ft);
-            if (!s.walljumping && !s.dashing) {
+            if (!s.dashing) {
                 vel = airControl(vel, wishdir, wishspeed2, ft);
             }
         }

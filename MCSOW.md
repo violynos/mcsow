@@ -66,9 +66,9 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 | UNIT_SCALE | 0.01875 | — | Warsow units → MC blocks |
 | FT | 0.05 | — | 20 ticks/sec |
 
-## Dead/Walljump (REMOVED)
+## Walljump (REMOVED — deferred)
 
-Walljump was removed due to inconsistent collision detection. `checkWalljump()` and `findWallNormal()` code still exists in `WarsowPmove.java` but is never called. Timer decrement for `walljumpTime` was also removed. Will revisit with better collision solution.
+Walljump was disabled due to inconsistent collision detection, and all its code has since been deleted from `WarsowPmove.java`: `checkWalljump()`, `findWallNormal()`, `clipVelocity()` (only walljump used it), the `PM_WJ*`/`PM_WALLJUMP_*` constants, and the `walljumpTime`/`walljumpCount`/`walljumping` state fields. Recover it from git history (commit "Remove dead walljump code") when revisiting with a better collision solution.
 
 ## Build & Deploy
 
