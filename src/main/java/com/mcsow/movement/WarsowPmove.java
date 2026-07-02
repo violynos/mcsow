@@ -102,6 +102,12 @@ public final class WarsowPmove {
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
     // proximity (MC blocks) used by the wall-momentum buffer to test if a wall cleared
     private static final double WJ_WALL_PROBE        = 0.12;
+    // walljump wall detection: 9 x-z footprint planes at feet→2.0 in 0.25 steps; a
+    // predicted next-frame collision at any plane + velocity heading into the wall
+    // (angle < 89°) makes the player eligible for a walljump next frame.
+    private static final int    WJ_PLANES            = 9;
+    private static final double WJ_PLANE_SPACING     = 0.25;
+    private static final double WJ_ANGLE_COS         = Math.cos(Math.toRadians(89.0));
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
     // clamped direction opens up (corner-skip) or a crouch-jump happens
@@ -124,6 +130,9 @@ public final class WarsowPmove {
         int walljumpTime;
         boolean walljumpCount;   // already walljumped since leaving this wall/ground
         boolean walljumping;     // in the launch window (until apex or ground)
+        boolean wallEligible;    // last-frame detection: a wall collision is imminent next frame
+        Vec3d wallNormal = Vec3d.ZERO;   // away-from-wall unit direction of the detected wall
+        Vec3d wallVelocity = Vec3d.ZERO; // velocity going into the wall (pre-collision), for the launch
         double wallSaveX;        // speed clamped by a wall on X, buffered for restore
         double wallSaveZ;
         int wallBufferX;         // frames left to restore the clamped X speed
@@ -185,10 +194,17 @@ public final class WarsowPmove {
         float fwdPush  = (float) (fwdInput  * maxspeed);
         float sidePush = (float) (sideInput * maxspeed);
 
-        // ---- JUMP FIRST (must run before timers, dash, directions). In water, jump/dash
-        //      are handled by the water branch (they push you up), so skip land movement. ----
-        s.jumped = false;
+        // ---- WALLJUMP (runs BEFORE jump so a jump press cannot overwrite it). Eligibility
+        //      was set last frame by the collision prediction; if dash is held now, launch. ----
+        boolean walljumped = false;
         if (!inWater) {
+            Vec3d wj = tryWalljump(vel, s, onGround, specialKeyDown);
+            if (wj != null) { vel = wj; walljumped = true; }
+        }
+
+        // ---- JUMP (skipped if we walljumped, or in water where jump/dash push you up). ----
+        s.jumped = false;
+        if (!inWater && !walljumped) {
             if (justLanded && jumpPressed) s.jumpHeld = false;
             vel = checkJump(vel, s, onGround, jumpPressed, crouchPressed, jumpSpeed);
         }
@@ -223,8 +239,6 @@ public final class WarsowPmove {
                 s.specialHeld = false;
             }
             vel = checkDash(vel, s, onGround, specialKeyDown, forward, right, fwdPush, sidePush);
-            // walljump uses the same key but only fires in the air against a wall
-            vel = checkWalljump(player, vel, s, onGround, specialKeyDown);
         }
 
         // recheck ground after jump/dash
@@ -297,6 +311,10 @@ public final class WarsowPmove {
 
         // ---- track landing state for next tick ----
         s.wasInAir = !onGround;
+
+        // ---- walljump detection: predict a next-frame wall collision from this frame's
+        //      velocity, set eligibility + save the into-wall velocity for tryWalljump. ----
+        updateWallEligibility(player, s, vel);
 
         // ---- apply to entity (Warsow units → MC blocks via UNIT_SCALE) ----
         // MC's move() sweeps collisions and stops us flush against blocks. We then
@@ -595,60 +613,79 @@ public final class WarsowPmove {
     //  WALLJUMP (Warsow PM_CheckWallJump) — hug a wall and press special to
     //  launch off it. The launch always goes away from the wall normal.
     // ================================================================
-    private static Vec3d checkWalljump(PlayerEntity player, Vec3d vel, PlayerMoveState s,
-                                        boolean onGround, boolean specialDown) {
-        if (!specialDown) s.specialHeld = false;
+    // ---- Walljump detection (runs at end of the tick). Nine x-z footprint planes span
+    //      the player's height (feet, +0.25 … +2.0). If the next-frame horizontal move would
+    //      collide at any plane AND the velocity is heading into that wall (angle < 89°), the
+    //      player becomes eligible next frame and we save the into-wall velocity + normal. ----
+    private static void updateWallEligibility(PlayerEntity player, PlayerMoveState s, Vec3d vel) {
+        s.wallEligible = false;
+        double stepX = vel.x * FT * UNIT_SCALE;   // next-frame horizontal move (MC blocks)
+        double stepZ = vel.z * FT * UNIT_SCALE;
+        boolean moveX = Math.abs(stepX) > 1.0e-6;
+        boolean moveZ = Math.abs(stepZ) > 1.0e-6;
+        if (!moveX && !moveZ) return;
 
-        // housekeeping (mirrors Warsow): clear walljump state on ground, at apex,
-        // and reset the once-per-wall count after the cooldown expires
+        Box box = player.getBoundingBox();
+        double e = 0.02;
+        double nx = 0, nz = 0;
+        for (int i = 0; i < WJ_PLANES; i++) {
+            double y = box.minY + i * WJ_PLANE_SPACING;
+            Box plane = new Box(box.minX, y, box.minZ, box.maxX, y + e, box.maxZ);
+            if (moveX && !isFree(player, plane.offset(stepX, 0, 0))) nx = -Math.signum(stepX);
+            if (moveZ && !isFree(player, plane.offset(0, 0, stepZ))) nz = -Math.signum(stepZ);
+        }
+        if (nx == 0 && nz == 0) return;
+        Vec3d normal = new Vec3d(nx, 0, nz).normalize();
+
+        // velocity must be heading INTO the wall: angle between it and the into-wall
+        // direction (−normal) below 89° (exclusive), else it's parallel/away — not eligible.
+        Vec3d hvel = new Vec3d(vel.x, 0, vel.z);
+        if (hvel.lengthSquared() < 1.0e-9) return;
+        double cos = hvel.normalize().dotProduct(normal.multiply(-1.0));
+        if (cos <= WJ_ANGLE_COS) return;
+
+        s.wallEligible = true;
+        s.wallNormal = normal;
+        s.wallVelocity = vel;
+    }
+
+    // ---- Walljump launch. If last frame flagged an imminent wall collision and dash is
+    //      held now, launch off it exactly like Warsow, using the SAVED pre-collision
+    //      velocity. Returns the new velocity, or null if no walljump. ----
+    private static Vec3d tryWalljump(Vec3d vel, PlayerMoveState s, boolean onGround, boolean specialDown) {
+        // housekeeping (mirrors Warsow): clear walljump state on ground, at apex, and reset
+        // the once-per-wall count after the cooldown expires
         if (onGround) { s.walljumping = false; s.walljumpCount = false; }
         if (s.walljumping && vel.y < 0) s.walljumping = false;
         if (s.walljumpTime <= 0) s.walljumpCount = false;
 
+        // gates: eligible (collision predicted last frame), dash held, airborne, off cooldown
+        if (!s.wallEligible || onGround || !specialDown || s.walljumpCount || s.walljumpTime > 0)
+            return null;
         // don't walljump in the first 100 ms of a dash jump
-        if (s.dashing && s.dashTime > (PM_DASHJUMP_TIMEDELAY - 100)) return vel;
+        if (s.dashing && s.dashTime > (PM_DASHJUMP_TIMEDELAY - 100)) return null;
 
-        // gates: airborne, fresh special press, not already walljumping, off cooldown
-        if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0)
-            return vel;
+        Vec3d normal = s.wallNormal;
+        Vec3d wv = s.wallVelocity; // velocity going into the wall (pre-collision)
 
-        // ======== WALL DETECTION: REMOVED — rebuild from here ========
-        // Set `normal` to the away-from-wall unit direction (±x / ±z) if there's a wall to
-        // launch off, otherwise leave it null (no walljump). Everything below (the launch)
-        // is untouched and just consumes `normal`.
-        Vec3d normal = null;
-        if (normal == null) return vel;
-        // =============================================================
-
-        // launch away from the wall (exact Warsow non-stun path). The direction comes
-        // from your current horizontal velocity (which the dash/movement set toward your
-        // look/input, since checkDash runs before this) slid along the wall, plus a 30%
-        // outward push. Warsow normalises the velocity to a UNIT vector BEFORE clipping
-        // and adding pm_wjbouncefactor(0.3) — so the outward push is a real 30%, not
-        // negligible against a full-magnitude velocity — then rescales to hSpeed.
-        float oldUp = (float) vel.y;
-        Vec3d hv = new Vec3d(vel.x, 0, vel.z);
+        // Warsow non-stun launch: unit-normalise the horizontal velocity, slide it along the
+        // wall, add a 30% outward push, restore speed (min PM_WJMINSPEED), keep faster up-speed.
+        float oldUp = (float) wv.y;
+        Vec3d hv = new Vec3d(wv.x, 0, wv.z);
         float hSpeed = (float) hv.length();
-
-        if (hSpeed > 0.001f) hv = hv.multiply(1.0 / hSpeed); // → unit horizontal (VectorNormalize2D)
-        hv = clipVelocity(hv, normal, 1.0005);   // slide along the wall (remove into-wall part)
-        hv = hv.add(normal.x * PM_WJBOUNCEFACTOR, 0, normal.z * PM_WJBOUNCEFACTOR); // 30% outward
+        if (hSpeed > 0.001f) hv = hv.multiply(1.0 / hSpeed);
+        hv = clipVelocity(hv, normal, 1.0005);
+        hv = hv.add(normal.x * PM_WJBOUNCEFACTOR, 0, normal.z * PM_WJBOUNCEFACTOR);
         if (hSpeed < PM_WJMINSPEED) hSpeed = PM_WJMINSPEED;
         double len = hv.length();
-        if (len > 0.001) {
-            hv = hv.multiply(hSpeed / len);       // renormalise and scale to hSpeed
-        } else {
-            hv = new Vec3d(normal.x * hSpeed, 0, normal.z * hSpeed); // straight away from wall
-        }
+        if (len > 0.001) hv = hv.multiply(hSpeed / len);
+        else hv = new Vec3d(normal.x * hSpeed, 0, normal.z * hSpeed);
 
-        s.specialHeld = true;
         s.walljumpCount = true;
         s.walljumping = true;
-        // walljumps have their OWN cooldown (same length as dash), distinct from the dash
-        // cooldown — a walljump does not consume/reset your dash and vice versa.
-        s.walljumpTime = PM_WALLJUMP_TIMEDELAY;
+        s.walljumpTime = PM_WALLJUMP_TIMEDELAY; // own cooldown (same length as dash), distinct
+        s.wallEligible = false;
 
-        // keep a faster existing up-speed, else apply the walljump up-boost
         return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
     }
 
