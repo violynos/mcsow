@@ -615,11 +615,11 @@ public final class WarsowPmove {
         double nx = 0, nz = 0;
         if (Math.abs(stepX) > 1.0e-5) {
             double reach = Math.copySign(Math.abs(stepX) + WJ_REACH_SKIN, stepX);
-            if (!isFree(player, box.offset(reach, 0, 0))) nx = -Math.signum(stepX);
+            if (wallAt(player, box, reach, 0)) nx = -Math.signum(stepX);
         }
         if (Math.abs(stepZ) > 1.0e-5) {
             double reach = Math.copySign(Math.abs(stepZ) + WJ_REACH_SKIN, stepZ);
-            if (!isFree(player, box.offset(0, 0, reach))) nz = -Math.signum(stepZ);
+            if (wallAt(player, box, 0, reach)) nz = -Math.signum(stepZ);
         }
         if (nx == 0 && nz == 0) return null;
         return new Vec3d(nx, 0, nz).normalize();
@@ -627,6 +627,17 @@ public final class WarsowPmove {
 
     private static boolean isFree(PlayerEntity player, Box box) {
         return player.getEntityWorld().isSpaceEmpty(player, box);
+    }
+
+    // A real walljump wall must block BOTH the lower (feet) and upper (head) halves of the
+    // ~1.8-tall player when moved by (dx,dz) — so a slab at the feet or an overhang at the
+    // head isn't mistaken for a wall. A ≥1-block-tall wall spans both halves; low/high-only
+    // obstacles don't.
+    private static boolean wallAt(PlayerEntity player, Box box, double dx, double dz) {
+        double midY = (box.minY + box.maxY) * 0.5;
+        Box feet = new Box(box.minX, box.minY, box.minZ, box.maxX, midY, box.maxZ);
+        Box head = new Box(box.minX, midY, box.minZ, box.maxX, box.maxY, box.maxZ);
+        return !isFree(player, feet.offset(dx, 0, dz)) && !isFree(player, head.offset(dx, 0, dz));
     }
 
     // True if there's a solid surface within STEP_GROUND_DROP (1 block) below the feet
