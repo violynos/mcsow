@@ -81,6 +81,10 @@ public final class WarsowPmove {
     // how close (MC blocks) the player must be to a wall to walljump off it
     private static final double WJ_WALL_PROBE        = 0.12;
 
+    // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
+    // clamped direction opens up (corner-skip)
+    private static final int    WALL_BUFFER_FRAMES   = 4;
+
     private static final java.util.Map<Integer, PlayerMoveState> STATES = new java.util.HashMap<>();
 
     private static class PlayerMoveState {
@@ -92,6 +96,10 @@ public final class WarsowPmove {
         int walljumpTime;
         boolean walljumpCount;   // already walljumped since leaving this wall/ground
         boolean walljumping;     // in the launch window (until apex or ground)
+        double wallSaveX;        // speed clamped by a wall on X, buffered for restore
+        double wallSaveZ;
+        int wallBufferX;         // frames left to restore the clamped X speed
+        int wallBufferZ;
         int crouchTime;
         int crouchSlideTime;
         boolean crouchSliding;
@@ -249,9 +257,42 @@ public final class WarsowPmove {
 
         double eps = 1.0e-4;
         double vx = vel.x, vy = vel.y, vz = vel.z;
-        if (Math.abs(delta.x) > eps && Math.abs(actual.x) < Math.abs(delta.x) - eps) vx = 0;
-        if (Math.abs(delta.y) > eps && Math.abs(actual.y) < Math.abs(delta.y) - eps) vy = 0;
-        if (Math.abs(delta.z) > eps && Math.abs(actual.z) < Math.abs(delta.z) - eps) vz = 0;
+        boolean blockedX = Math.abs(delta.x) > eps && Math.abs(actual.x) < Math.abs(delta.x) - eps;
+        boolean blockedY = Math.abs(delta.y) > eps && Math.abs(actual.y) < Math.abs(delta.y) - eps;
+        boolean blockedZ = Math.abs(delta.z) > eps && Math.abs(actual.z) < Math.abs(delta.z) - eps;
+
+        // ceiling/floor: just kill vertical velocity (no momentum buffer)
+        if (blockedY) vy = 0;
+
+        // Wall-momentum buffer (corner-skip): when a horizontal axis is clamped by a
+        // wall, remember the speed we lost; then for the next WALL_BUFFER_FRAMES ticks,
+        // if that direction opens up (e.g. you round the corner) restore that speed
+        // instead of eating the loss.
+        Box pbox = player.getBoundingBox();
+        if (blockedX) {
+            s.wallSaveX = vel.x;
+            s.wallBufferX = WALL_BUFFER_FRAMES;
+            vx = 0;
+        } else if (s.wallBufferX > 0) {
+            if (isFree(player, pbox.offset(Math.copySign(WJ_WALL_PROBE, s.wallSaveX), 0, 0))) {
+                vx = s.wallSaveX;      // direction cleared → give the speed back
+                s.wallBufferX = 0;
+            } else {
+                s.wallBufferX--;
+            }
+        }
+        if (blockedZ) {
+            s.wallSaveZ = vel.z;
+            s.wallBufferZ = WALL_BUFFER_FRAMES;
+            vz = 0;
+        } else if (s.wallBufferZ > 0) {
+            if (isFree(player, pbox.offset(0, 0, Math.copySign(WJ_WALL_PROBE, s.wallSaveZ)))) {
+                vz = s.wallSaveZ;
+                s.wallBufferZ = 0;
+            } else {
+                s.wallBufferZ--;
+            }
+        }
         vel = new Vec3d(vx, vy, vz);
 
         // ---- store reconciled velocity for next tick ----
