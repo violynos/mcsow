@@ -44,7 +44,7 @@ public final class WarsowPmove {
 
     // water movement
     private static final float WATER_GRAVITY_SCALE  = 0.5f;  // half gravity while in water (no friction on it)
-    private static final float WATER_FRICTION_SCALE = 0.2f;  // water friction = ground friction × 0.2
+    private static final float WATER_FRICTION_SCALE = 0.1f;  // water friction = ground friction × 0.1
     private static float       WATER_UPSPEED        = 280.0f; // up-boost from jump/dash held in water (friction-limited)
 
     // config-tunable (see McSowConfig / applyConfig); GRAVITY_COMPENSATE is fixed at 1.4
