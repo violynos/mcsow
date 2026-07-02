@@ -42,6 +42,10 @@ public final class WarsowPmove {
     private static final float FT = 0.05f; // 20 ticks/sec
     private static final float UNIT_SCALE = 0.01875f; // 1 Warsow unit → MC blocks
 
+    // water movement
+    private static final float WATER_GRAVITY_SCALE = 0.5f;   // half gravity while in water (no friction on it)
+    private static float       WATER_UPSPEED       = 280.0f; // up-boost from jump/dash held in water (friction-limited)
+
     // config-tunable (see McSowConfig / applyConfig); GRAVITY_COMPENSATE is fixed at 1.4
     private static float GRAVITY                  = 1120.0f;
     private static final float GRAVITY_SCALE      = 1.0f; // no scaling, raw Warsow
@@ -169,8 +173,12 @@ public final class WarsowPmove {
         s.forceGround = false;
         boolean justLanded = onGround && s.wasInAir;
 
+        // ---- water state ----
+        boolean inWater = player.isTouchingWater();
+        boolean submerged = player.isSubmergedInWater();
+
         // ---- reset vertical speed on ground contact (not just on jump/dash) ----
-        if (onGround && vel.y < 0) vel = new Vec3d(vel.x, 0, vel.z);
+        if (!inWater && onGround && vel.y < 0) vel = new Vec3d(vel.x, 0, vel.z);
 
         // ---- dynamic speed/jump from MC modifiers (Speed, Soul Speed, sprint,
         //      attributes → movement-speed attribute; Jump Boost; sneak/Swift Sneak) ----
@@ -179,10 +187,13 @@ public final class WarsowPmove {
         float fwdPush  = (float) (fwdInput  * maxspeed);
         float sidePush = (float) (sideInput * maxspeed);
 
-        // ---- JUMP FIRST (must run before timers, dash, directions) ----
+        // ---- JUMP FIRST (must run before timers, dash, directions). In water, jump/dash
+        //      are handled by the water branch (they push you up), so skip land movement. ----
         s.jumped = false;
-        if (justLanded && jumpPressed) s.jumpHeld = false;
-        vel = checkJump(vel, s, onGround, jumpPressed, crouchPressed, jumpSpeed);
+        if (!inWater) {
+            if (justLanded && jumpPressed) s.jumpHeld = false;
+            vel = checkJump(vel, s, onGround, jumpPressed, crouchPressed, jumpSpeed);
+        }
 
         // ---- direction vectors from yaw (needed for dash) ----
         float yawRad = player.getYaw() * MathHelper.RADIANS_PER_DEGREE;
@@ -204,9 +215,10 @@ public final class WarsowPmove {
             }
         }
 
-        // ---- if jumped this tick, skip dash entirely (no cooldown) ----
+        // ---- if jumped this tick, skip dash entirely (no cooldown). No dash/walljump in
+        //      water — dash becomes an upward push in the water branch. ----
         boolean guard = s.jumped || (onGround && jumpPressed);
-        if (!guard) {
+        if (!inWater && !guard) {
             // landing while holding R counts as a fresh press, but the
             // dash cooldown (dashTime) still gates when it can fire
             if (justLanded && specialKeyDown) {
@@ -226,8 +238,8 @@ public final class WarsowPmove {
         // ---- skip ground physics on landing only if a trigger (jump/dash) keeps us airborne ----
         boolean stayAirborne = justLanded && (s.jumped || s.dashing);
 
-        // ---- friction (ground only) ----
-        if (onGround && !stayAirborne) {
+        // ---- friction (ground only; water handles its own friction in its branch) ----
+        if (!inWater && onGround && !stayAirborne) {
             vel = applyFriction(vel, s, FT);
         }
 
@@ -244,9 +256,24 @@ public final class WarsowPmove {
             wishdir = Vec3d.ZERO;
         }
 
-        // ---- ground or air move → this tick's displacement in Warsow units ----
+        // ---- water / ground / air move → this tick's displacement in Warsow units ----
         Vec3d dispWs;
-        if (onGround) {
+        if (inWater) {
+            // Air control horizontally. Jump AND dash push you up (dash uses the jump path
+            // here); held → keep rising. Friction hits horizontal (submerged only) and the
+            // upward jump/dash velocity, but NOT gravity, which is halved. Sub-stepped.
+            double subFt = (double) FT / AIR_SUBSTEPS;
+            dispWs = Vec3d.ZERO;
+            for (int i = 0; i < AIR_SUBSTEPS; i++) {
+                if (jumpPressed || specialKeyDown) {
+                    vel = new Vec3d(vel.x, Math.max(vel.y, WATER_UPSPEED), vel.z);
+                }
+                vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, false, (float) subFt);
+                vel = waterFriction(vel, s, submerged, (float) subFt);
+                vel = vel.add(0, -WATER_GRAVITY_SCALE * GRAVITY * subFt * GRAVITY_SCALE, 0);
+                dispWs = dispWs.add(vel.multiply(subFt));
+            }
+        } else if (onGround) {
             if (!stayAirborne) {
                 vel = groundMove(vel, wishdir, wishspeed, FT);
             }
@@ -417,6 +444,23 @@ public final class WarsowPmove {
         double newSpd = Math.max(0, spd - drop);
         double ratio = (spd > 0.001) ? newSpd / spd : 0;
         return new Vec3d(vel.x * ratio, vel.y, vel.z * ratio);
+    }
+
+    // Water friction: ground friction on the horizontal (only when submerged — the
+    // surface is frictionless except for jump/dash), plus friction on the UPWARD
+    // (jump/dash) vertical velocity so rising is limited. Downward velocity (gravity) is
+    // left alone, per spec.
+    private static Vec3d waterFriction(Vec3d vel, PlayerMoveState s, boolean submerged, float ft) {
+        double vx = vel.x, vy = vel.y, vz = vel.z;
+        if (submerged) {
+            Vec3d h = applyFriction(new Vec3d(vx, 0, vz), s, ft);
+            vx = h.x; vz = h.z;
+        }
+        if (vy > 0) { // friction the jump/dash rise, not gravity's descent
+            double control = Math.max(vy, PM_DECELERATE);
+            vy = Math.max(0, vy - control * PM_FRICTION * ft);
+        }
+        return new Vec3d(vx, vy, vz);
     }
 
     // ================================================================
