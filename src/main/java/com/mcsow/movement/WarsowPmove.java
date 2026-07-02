@@ -91,7 +91,7 @@ public final class WarsowPmove {
     private static final float SPEEDKEY              = 500.0f;
 
     // walljump (Warsow gs_pmove.c PM_CheckWallJump, non-OLDWALLJUMP path)
-    public static final int    PM_WALLJUMP_TIMEDELAY = 1300; // cooldown between walljumps (ms)
+    public static final int    PM_WALLJUMP_TIMEDELAY = PM_DASHJUMP_TIMEDELAY; // own cooldown, same length as dash
     private static float PM_WJUPSPEED                = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost ×1.09 (config-tunable)
     private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
@@ -594,9 +594,8 @@ public final class WarsowPmove {
         s.specialHeld = true;
         s.walljumpCount = true;
         s.walljumping = true;
-        // a walljump counts as a dash: put the dash on cooldown (not clear it)
-        s.dashing = true;
-        s.dashTime = PM_DASHJUMP_TIMEDELAY;
+        // walljumps have their OWN cooldown (same length as dash), distinct from the dash
+        // cooldown — a walljump does not consume/reset your dash and vice versa.
         s.walljumpTime = PM_WALLJUMP_TIMEDELAY;
 
         // keep a faster existing up-speed, else apply the walljump up-boost
