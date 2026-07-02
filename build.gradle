@@ -22,10 +22,14 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // Config screen (optional at runtime — see fabric.mod.json "recommends")
+    // Config screen. Mod Menu is a user-installed mod (optional). Cloth Config is a
+    // library we bundle (jar-in-jar) so the config screen works with just Mod Menu.
     modImplementation "com.terraformersmc:modmenu:${project.modmenu_version}"
     modImplementation("me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}") {
         exclude(group: "net.fabricmc.fabric-api")
+    }
+    include("me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}") {
+        transitive = false
     }
 }
 

@@ -58,19 +58,23 @@ public final class McSowConfigScreen {
         ConfigCategory dash = builder.getOrCreateCategory(Text.literal("Dash & Walljump"));
         dash.addEntry(eb.startFloatField(Text.literal("Dash speed (minimum)"), cfg.dashSpeed)
                 .setDefaultValue(450.0f)
-                .setTooltip(Text.literal("Minimum horizontal speed a dash gives you (keeps your current speed if it's already faster)."))
+                .setTooltip(
+                    Text.literal("Minimum horizontal speed a dash gives you (keeps your current speed if it's already faster)."),
+                    Text.literal("Higher = dashes fling you faster/farther across the ground."))
                 .setSaveConsumer(v -> cfg.dashSpeed = v)
                 .build());
         dash.addEntry(eb.startFloatField(Text.literal("Dash up-speed"), cfg.dashUpSpeed)
                 .setDefaultValue(174.0f * 1.15f * 1.4f)
                 .setTooltip(
                     Text.literal("Vertical velocity added by a dash — the dash's hop height."),
-                    Text.literal("Tuned so a dash clears about half a block in Minecraft."))
+                    Text.literal("Higher = dash hops higher. Tuned so a dash clears about half a block."))
                 .setSaveConsumer(v -> cfg.dashUpSpeed = v)
                 .build());
         dash.addEntry(eb.startFloatField(Text.literal("Walljump up-speed"), cfg.wallJumpUpSpeed)
                 .setDefaultValue(330.0f * 1.09f * 1.4f)
-                .setTooltip(Text.literal("Vertical velocity of a walljump — how high you pop when you kick off a wall."))
+                .setTooltip(
+                    Text.literal("Vertical velocity of a walljump — how high you pop when you kick off a wall."),
+                    Text.literal("Higher = more height per walljump, so you climb walls faster."))
                 .setSaveConsumer(v -> cfg.wallJumpUpSpeed = v)
                 .build());
 
