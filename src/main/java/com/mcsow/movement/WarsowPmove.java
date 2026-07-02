@@ -95,11 +95,11 @@ public final class WarsowPmove {
     private static float PM_WJUPSPEED                = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost ×1.09 (config-tunable)
     private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
-    // how close (MC blocks) the player must be to a wall to walljump off it
+    // proximity (MC blocks) used by the wall-momentum buffer to test if a wall cleared
     private static final double WJ_WALL_PROBE        = 0.12;
-    // min away-from-wall speed (Warsow units) above which we skip the walljump (you're
-    // leaving the wall, not hugging it); at/below this we still allow it
-    private static final double WJ_AWAY_EPS          = 1.0;
+    // extra reach (MC blocks) beyond the next-frame move distance for walljump wall
+    // detection, so a wall we're just about to contact still counts
+    private static final double WJ_REACH_SKIN        = 0.05;
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
     // clamped direction opens up (corner-skip) or a crouch-jump happens
@@ -558,14 +558,10 @@ public final class WarsowPmove {
         if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0)
             return vel;
 
-        Vec3d normal = findWallNormal(player);
+        // only a wall we'll actually hit next frame (velocity-based, so moving away from
+        // a nearby wall naturally returns null and won't false-walljump)
+        Vec3d normal = findWallNormal(player, vel);
         if (normal == null) return vel;
-
-        // Don't walljump off a wall we're already moving AWAY from (the normal points
-        // away from the wall, so vel·normal > 0 means we're leaving it). This avoids
-        // false walljumps off slabs/ledges you're dashing away from — only walljump when
-        // moving toward the wall or roughly parallel to it.
-        if (vel.x * normal.x + vel.z * normal.z > WJ_AWAY_EPS) return vel;
 
         // launch away from the wall (Warsow non-stun path)
         float oldUp = (float) vel.y;
@@ -594,17 +590,24 @@ public final class WarsowPmove {
         return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
     }
 
-    // Find the away-from-wall normal by probing the four cardinal horizontal
-    // directions (MC blocks are axis-aligned). Blocked directions contribute an
-    // outward normal; summed and normalized so corners point out of the corner.
-    private static Vec3d findWallNormal(PlayerEntity player) {
+    // Find the wall we're about to hit NEXT FRAME, based on current horizontal velocity.
+    // Only probes in the direction of travel, by the distance we'll move next frame
+    // (+ a small skin so a wall we're about to contact still counts). So we don't
+    // walljump off nearby walls we aren't actually going to hit (e.g. slabs we're
+    // dashing away from). MC blocks are axis-aligned, so the normal is ±x / ±z.
+    private static Vec3d findWallNormal(PlayerEntity player, Vec3d vel) {
         Box box = player.getBoundingBox();
-        double p = WJ_WALL_PROBE;
+        double stepX = vel.x * FT * UNIT_SCALE; // next-frame horizontal move (MC blocks)
+        double stepZ = vel.z * FT * UNIT_SCALE;
         double nx = 0, nz = 0;
-        if (!isFree(player, box.offset(p, 0, 0)))  nx -= 1; // wall on +x → normal points -x
-        if (!isFree(player, box.offset(-p, 0, 0))) nx += 1;
-        if (!isFree(player, box.offset(0, 0, p)))  nz -= 1;
-        if (!isFree(player, box.offset(0, 0, -p))) nz += 1;
+        if (Math.abs(stepX) > 1.0e-5) {
+            double reach = Math.copySign(Math.abs(stepX) + WJ_REACH_SKIN, stepX);
+            if (!isFree(player, box.offset(reach, 0, 0))) nx = -Math.signum(stepX);
+        }
+        if (Math.abs(stepZ) > 1.0e-5) {
+            double reach = Math.copySign(Math.abs(stepZ) + WJ_REACH_SKIN, stepZ);
+            if (!isFree(player, box.offset(0, 0, reach))) nz = -Math.signum(stepZ);
+        }
         if (nx == 0 && nz == 0) return null;
         return new Vec3d(nx, 0, nz).normalize();
     }
