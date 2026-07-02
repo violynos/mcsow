@@ -302,8 +302,7 @@ public final class WarsowPmove {
             double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, STEP_UP_HEIGHT);
             if (step > 0) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
-                player.setOnGround(true);
-                s.forceGround = true;   // start next tick grounded (smooth landing on the ledge)
+                s.forceGround = true;   // start next tick grounded (applied at frame end below)
                 blockedX = false;
                 blockedZ = false;
             }
@@ -342,6 +341,10 @@ public final class WarsowPmove {
 
         // ---- store reconciled velocity for next tick ----
         s.velocity = vel;
+
+        // ---- force grounded at the VERY END of the frame (a step-up this tick set the
+        //      flag); the corresponding check is at the very start of move() next tick ----
+        if (s.forceGround) player.setOnGround(true);
     }
 
     // ================================================================
