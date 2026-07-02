@@ -32,7 +32,7 @@ public final class WarsowPmove {
     // friction / acceleration
     private static final float PM_FRICTION         = 8.0f;
     private static final float PM_ACCELERATE       = 12.0f;
-    private static final float PM_AIRACCELERATE    = 1.0f;
+    private static final float PM_AIRACCELERATE    = 1.1f; // Warsow 1.0, tuned ×1.1 for stronger quake-strafe gain
     private static final float PM_AIRDECELERATE    = 2.0f;
     private static final float PM_DECELERATE       = 12.0f;
     private static final float PM_WATERFRICTION    = 1.0f;

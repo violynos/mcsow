@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.2.1, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.2.2, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -59,7 +59,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 | PM_FRICTION | 8.0 | — | Warsow default |
 | PM_ACCELERATE | 12.0 | — | Ground acceleration |
 | PM_DECELERATE | 12.0 | — | Friction control threshold |
-| PM_AIRACCELERATE | 1.0 | — | Air acceleration |
+| PM_AIRACCELERATE | 1.1 | — | Air accel / quake-strafe gain (Warsow 1.0, tuned ×1.1) |
 | PM_AIRDECELERATE | 2.0 | — | Air deceleration |
 | DEFAULT_PLAYERSPEED | 320.0 | — | Base max speed |
 | DEFAULT_DASHSPEED | 450.0 | — | Minimum dash horizontal speed |
