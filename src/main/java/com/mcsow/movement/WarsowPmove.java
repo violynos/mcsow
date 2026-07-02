@@ -105,6 +105,8 @@ public final class WarsowPmove {
     // max ledge height (MC blocks) we auto-step up onto (0.6 = MC's step height, so full
     // slabs work — "like to a slab")
     private static final double STEP_UP_HEIGHT       = 0.6;
+    // how far below the feet a surface may be for step-up to apply (so it works mid-air)
+    private static final double STEP_GROUND_DROP     = 1.0;
 
     private static final java.util.Map<Integer, PlayerMoveState> STATES = new java.util.HashMap<>();
 
@@ -285,10 +287,11 @@ public final class WarsowPmove {
         // ceiling/floor: just kill vertical velocity (no momentum buffer)
         if (blockedY) vy = 0;
 
-        // Step-up: if we hit a low ledge (≤ STEP_UP_HEIGHT, e.g. a slab) while grounded,
-        // snap the player up onto it and KEEP horizontal speed instead of clamping — so
-        // stepping onto slabs/edges is smooth rather than a dead stop.
-        if ((blockedX || blockedZ) && player.isOnGround()) {
+        // Step-up: if we hit a low ledge (≤ STEP_UP_HEIGHT, e.g. a slab) with a surface
+        // within 1 block below our feet, snap the player up onto it and KEEP horizontal
+        // speed instead of clamping — so stepping onto slabs/edges is smooth. Works
+        // mid-air (not just grounded), as long as there's ground close below.
+        if ((blockedX || blockedZ) && hasGroundBelow(player)) {
             double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0);
             if (step > 0) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
@@ -586,6 +589,14 @@ public final class WarsowPmove {
 
     private static boolean isFree(PlayerEntity player, Box box) {
         return player.getEntityWorld().isSpaceEmpty(player, box);
+    }
+
+    // True if there's a solid surface within STEP_GROUND_DROP (1 block) below the feet
+    // (footprint-only, so side walls don't count). Lets step-up work mid-air near ground.
+    private static boolean hasGroundBelow(PlayerEntity player) {
+        Box b = player.getBoundingBox();
+        Box under = new Box(b.minX, b.minY - STEP_GROUND_DROP, b.minZ, b.maxX, b.minY, b.maxZ);
+        return !isFree(player, under);
     }
 
     // If a horizontal collision is a low ledge we can step onto, return the height (MC
