@@ -25,7 +25,8 @@ public abstract class ClientPlayerEntityTravelMixin {
             || self.isSpectator()
             || self.getAbilities().flying
             || self.hasVehicle()
-            || self.isGliding();
+            || self.isGliding()
+            || self.isTouchingWater(); // TODO: custom water movement — for now let vanilla swim
 
         if (vanillaControls) {
             WarsowPmove.syncFromActual(self);
