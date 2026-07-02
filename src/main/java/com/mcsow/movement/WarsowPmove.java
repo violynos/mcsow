@@ -566,17 +566,23 @@ public final class WarsowPmove {
         Vec3d normal = findWallNormal(player, vel);
         if (normal == null) return vel;
 
-        // launch away from the wall (Warsow non-stun path)
+        // launch away from the wall (exact Warsow non-stun path). The direction comes
+        // from your current horizontal velocity (which the dash/movement set toward your
+        // look/input, since checkDash runs before this) slid along the wall, plus a 30%
+        // outward push. Warsow normalises the velocity to a UNIT vector BEFORE clipping
+        // and adding pm_wjbouncefactor(0.3) — so the outward push is a real 30%, not
+        // negligible against a full-magnitude velocity — then rescales to hSpeed.
         float oldUp = (float) vel.y;
         Vec3d hv = new Vec3d(vel.x, 0, vel.z);
         float hSpeed = (float) hv.length();
 
-        hv = clipVelocity(hv, normal, 1.0005);   // remove the into-wall component
-        hv = hv.add(normal.x * PM_WJBOUNCEFACTOR, 0, normal.z * PM_WJBOUNCEFACTOR); // outward push
+        if (hSpeed > 0.001f) hv = hv.multiply(1.0 / hSpeed); // → unit horizontal (VectorNormalize2D)
+        hv = clipVelocity(hv, normal, 1.0005);   // slide along the wall (remove into-wall part)
+        hv = hv.add(normal.x * PM_WJBOUNCEFACTOR, 0, normal.z * PM_WJBOUNCEFACTOR); // 30% outward
         if (hSpeed < PM_WJMINSPEED) hSpeed = PM_WJMINSPEED;
         double len = hv.length();
         if (len > 0.001) {
-            hv = hv.multiply(hSpeed / len);       // restore speed in the new direction
+            hv = hv.multiply(hSpeed / len);       // renormalise and scale to hSpeed
         } else {
             hv = new Vec3d(normal.x * hSpeed, 0, normal.z * hSpeed); // straight away from wall
         }
