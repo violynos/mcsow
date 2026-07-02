@@ -1,10 +1,20 @@
 package com.mcsow.movement;
 
+import net.minecraft.enchantment.Enchantment;
+import net.minecraft.enchantment.EnchantmentHelper;
+import net.minecraft.enchantment.Enchantments;
 import net.minecraft.entity.MovementType;
+import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.registry.Registry;
+import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.World;
 
 public final class WarsowPmove {
     private static boolean enabled = true;
@@ -116,7 +126,7 @@ public final class WarsowPmove {
     // ================================================================
     public static void move(PlayerEntity player, boolean specialKeyDown,
                              boolean jumpPressed, boolean crouchPressed,
-                             float fwdPush, float sidePush) {
+                             float fwdInput, float sideInput) {
         PlayerMoveState s = state(player);
         Vec3d vel = s.velocity;
 
@@ -127,10 +137,17 @@ public final class WarsowPmove {
         // ---- reset vertical speed on ground contact (not just on jump/dash) ----
         if (onGround && vel.y < 0) vel = new Vec3d(vel.x, 0, vel.z);
 
+        // ---- dynamic speed/jump from MC modifiers (Speed, Soul Speed, sprint,
+        //      attributes → movement-speed attribute; Jump Boost; sneak/Swift Sneak) ----
+        double maxspeed = playerMaxSpeed(player);
+        float jumpSpeed = DEFAULT_JUMPSPEED + (float) jumpBoostBonus(player);
+        float fwdPush  = (float) (fwdInput  * maxspeed);
+        float sidePush = (float) (sideInput * maxspeed);
+
         // ---- JUMP FIRST (must run before timers, dash, directions) ----
         s.jumped = false;
         if (justLanded && jumpPressed) s.jumpHeld = false;
-        vel = checkJump(vel, s, onGround, justLanded, jumpPressed, crouchPressed);
+        vel = checkJump(vel, s, onGround, justLanded, jumpPressed, crouchPressed, jumpSpeed);
 
         // ---- direction vectors from yaw (needed for dash) ----
         float yawRad = player.getYaw() * MathHelper.RADIANS_PER_DEGREE;
@@ -183,8 +200,7 @@ public final class WarsowPmove {
         double wishX = forward.x * fwdPush + right.x * sidePush;
         double wishZ = forward.z * fwdPush + right.z * sidePush;
         double wishLen = Math.sqrt(wishX * wishX + wishZ * wishZ);
-        // clamp to maxspeed
-        float maxspeed = DEFAULT_PLAYERSPEED;
+        // clamp to the (dynamic) max speed computed above
         float wishspeed = (float) Math.min(wishLen, maxspeed);
         Vec3d wishdir;
         if (wishLen > 0.001) {
@@ -317,7 +333,8 @@ public final class WarsowPmove {
     //  JUMP (Warsow PM_CheckJump)
     // ================================================================
     private static Vec3d checkJump(Vec3d vel, PlayerMoveState s, boolean onGround,
-                                    boolean justLanded, boolean jumpPressed, boolean crouchPressed) {
+                                    boolean justLanded, boolean jumpPressed, boolean crouchPressed,
+                                    float jumpSpeed) {
         if (!jumpPressed) {
             s.jumpHeld = false;
             return vel;
@@ -334,21 +351,67 @@ public final class WarsowPmove {
                 // crouch LAUNCH: land at speed holding jump+crouch → keep all horizontal
                 // momentum and get a big vertical boost scaled by speed. A timing reward,
                 // distinct from the standstill crouch-jump below.
-                vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED + CROUCH_LAUNCH_FACTOR * hspeed, vel.z);
+                vel = new Vec3d(vel.x, jumpSpeed + CROUCH_LAUNCH_FACTOR * hspeed, vel.z);
             } else {
                 // crouch-jump: trade horizontal momentum for height. Convert 75% of
                 // horizontal speed into vertical and keep 25% as horizontal, so you can
                 // pop straight up onto a block instead of always launching a full block
                 // forward.
-                vel = new Vec3d(vel.x * 0.25, DEFAULT_JUMPSPEED + 0.75 * hspeed, vel.z * 0.25);
+                vel = new Vec3d(vel.x * 0.25, jumpSpeed + 0.75 * hspeed, vel.z * 0.25);
             }
         } else {
-            vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED, vel.z);
+            vel = new Vec3d(vel.x, jumpSpeed, vel.z);
         }
 
         s.dashTime = 0;
         s.dashing = false;
         return vel;
+    }
+
+    // ================================================================
+    //  MC MODIFIER SCALING (movement-speed attribute, Jump Boost, sneak/Swift Sneak)
+    // ================================================================
+
+    // Effective max ground speed in Warsow units. Scales DEFAULT_PLAYERSPEED by the
+    // player's movement-speed attribute multiplier (Speed potion, Soul Speed, sprint,
+    // item/attribute modifiers all fold into this), then applies the sneak factor
+    // while sneaking on the ground.
+    public static double playerMaxSpeed(PlayerEntity player) {
+        double base = player.getAttributeBaseValue(EntityAttributes.MOVEMENT_SPEED);
+        double cur  = player.getAttributeValue(EntityAttributes.MOVEMENT_SPEED);
+        double mul  = (base > 1.0e-6) ? cur / base : 1.0; // 1.0 at no modifiers
+        double speed = DEFAULT_PLAYERSPEED * mul;
+        if (player.isSneaking() && player.isOnGround()) {
+            speed *= sneakFactor(player);
+        }
+        return speed;
+    }
+
+    // Sneaking speed multiplier per the MC wiki: base 0.3× walk, +0.15 per Swift Sneak
+    // level (max level 3 → 0.75×).
+    private static double sneakFactor(PlayerEntity player) {
+        int lvl = Math.min(3, swiftSneakLevel(player));
+        return 0.3 + 0.15 * lvl;
+    }
+
+    private static int swiftSneakLevel(PlayerEntity player) {
+        try {
+            World world = player.getEntityWorld();
+            Registry<Enchantment> ench = world.getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
+            RegistryEntry<Enchantment> swift = ench.getOrThrow(Enchantments.SWIFT_SNEAK);
+            return EnchantmentHelper.getEquipmentLevel(swift, player);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    // Extra jump velocity (Warsow units) from the Jump Boost effect. Vanilla adds
+    // 0.1·(amplifier+1) blocks/tick to jump velocity; convert to Warsow units.
+    private static double jumpBoostBonus(PlayerEntity player) {
+        StatusEffectInstance jb = player.getStatusEffect(StatusEffects.JUMP_BOOST);
+        if (jb == null) return 0.0;
+        double mcBlocksPerTick = 0.1 * (jb.getAmplifier() + 1);
+        return mcBlocksPerTick / (FT * UNIT_SCALE);
     }
 
     // ================================================================

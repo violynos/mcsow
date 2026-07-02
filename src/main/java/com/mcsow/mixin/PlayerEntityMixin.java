@@ -36,10 +36,9 @@ public abstract class PlayerEntityMixin {
             boolean special = SpecialState.isDown(self.getId());
             boolean crouchPressed = self.isSneaking();
             Vec2f mv = cpe.input.getMovementInput();
-            float fwdPush = mv.y * WarsowPmove.DEFAULT_PLAYERSPEED;
-            float sidePush = mv.x * WarsowPmove.DEFAULT_PLAYERSPEED;
+            // pass raw input (-1..1); move() scales by the player's dynamic max speed
             boolean jumpPressed = self.isJumping();
-            WarsowPmove.move(self, special, jumpPressed, crouchPressed, fwdPush, sidePush);
+            WarsowPmove.move(self, special, jumpPressed, crouchPressed, mv.y, mv.x);
             ci.cancel();
             return;
         }
