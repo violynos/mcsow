@@ -1,11 +1,12 @@
 build/
-.gradle/
 *.class
-*.jar
-*.iml
+.claude/
+.DS_Store
+.gradle/
 .idea/
+*.iml
 *.ipr
 *.iws
+*.jar
 out/
 run/
-.DS_Store
