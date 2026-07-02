@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.3.0, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.3.1, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -69,7 +69,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 
 ## Walljump (RE-IMPLEMENTED v1.3.0)
 
-Restored and rebuilt on top of the new collision reconciliation. `checkWalljump()`: when airborne, holding a fresh special press, off cooldown, and hugging a wall, launch away from the wall. `findWallNormal()` now probes the **4 cardinal directions** (MC blocks are axis-aligned, so this is more reliable than the old 12-way diagonal probe that caused the original "inconsistent collision" removal). Launch = clip into-wall component + outward `PM_WJBOUNCEFACTOR` + restore speed (min `PM_WJMINSPEED=240`) + up-boost `PM_WJUPSPEED=330×1.4`. State: `walljumpTime` (cooldown `PM_WALLJUMP_TIMEDELAY=1300`), `walljumpCount` (once per wall contact), `walljumping` (launch window, inhibits air accel/control until apex). Shares the special key with dash; dash fires on ground, walljump in the air.
+Restored and rebuilt on top of the new collision reconciliation. `checkWalljump()`: when airborne, holding a fresh special press, off cooldown, and hugging a wall, launch away from the wall. `findWallNormal()` now probes the **4 cardinal directions** (MC blocks are axis-aligned, so this is more reliable than the old 12-way diagonal probe that caused the original "inconsistent collision" removal). Launch = clip into-wall component + outward `PM_WJBOUNCEFACTOR` + restore speed (min `PM_WJMINSPEED=240`) + up-boost `PM_WJUPSPEED=330×1.09×1.4` (height tuned ×1.09). A walljump **counts as a dash** — it sets `dashing` and starts the dash cooldown (`dashTime = PM_DASHJUMP_TIMEDELAY`). State: `walljumpTime` (cooldown `PM_WALLJUMP_TIMEDELAY=1300`), `walljumpCount` (once per wall contact), `walljumping` (launch window, inhibits air accel/control until apex). Shares the special key with dash; dash fires on ground, walljump in the air.
 
 ## Build & Deploy
 
