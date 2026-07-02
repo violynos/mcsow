@@ -30,6 +30,10 @@ public final class WarsowPmove {
     public static final float DEFAULT_JUMPSPEED     = 280.0f * GRAVITY_COMPENSATE;
     public static final float DEFAULT_DASHSPEED     = 450.0f; // minimum dash speed
 
+    // crouch launch: land at speed holding jump+crouch → keep momentum + vertical boost
+    private static final float CROUCH_LAUNCH_MIN_SPEED = DEFAULT_PLAYERSPEED; // need > run speed
+    private static final float CROUCH_LAUNCH_FACTOR    = 0.6f; // vertical boost per unit hspeed
+
     // friction / acceleration
     private static final float PM_FRICTION         = 8.0f;
     private static final float PM_ACCELERATE       = 12.0f;
@@ -126,7 +130,7 @@ public final class WarsowPmove {
         // ---- JUMP FIRST (must run before timers, dash, directions) ----
         s.jumped = false;
         if (justLanded && jumpPressed) s.jumpHeld = false;
-        vel = checkJump(vel, s, onGround, jumpPressed, crouchPressed);
+        vel = checkJump(vel, s, onGround, justLanded, jumpPressed, crouchPressed);
 
         // ---- direction vectors from yaw (needed for dash) ----
         float yawRad = player.getYaw() * MathHelper.RADIANS_PER_DEGREE;
@@ -313,7 +317,7 @@ public final class WarsowPmove {
     //  JUMP (Warsow PM_CheckJump)
     // ================================================================
     private static Vec3d checkJump(Vec3d vel, PlayerMoveState s, boolean onGround,
-                                    boolean jumpPressed, boolean crouchPressed) {
+                                    boolean justLanded, boolean jumpPressed, boolean crouchPressed) {
         if (!jumpPressed) {
             s.jumpHeld = false;
             return vel;
@@ -325,12 +329,19 @@ public final class WarsowPmove {
         s.jumped = true;
 
         if (crouchPressed) {
-            // crouch-jump: trade horizontal momentum for height. Convert 75% of
-            // horizontal speed into vertical and keep 25% as horizontal, so you can
-            // pop straight up onto a block instead of always launching a full block
-            // forward.
             double hspeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-            vel = new Vec3d(vel.x * 0.25, DEFAULT_JUMPSPEED + 0.75 * hspeed, vel.z * 0.25);
+            if (justLanded && hspeed >= CROUCH_LAUNCH_MIN_SPEED) {
+                // crouch LAUNCH: land at speed holding jump+crouch → keep all horizontal
+                // momentum and get a big vertical boost scaled by speed. A timing reward,
+                // distinct from the standstill crouch-jump below.
+                vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED + CROUCH_LAUNCH_FACTOR * hspeed, vel.z);
+            } else {
+                // crouch-jump: trade horizontal momentum for height. Convert 75% of
+                // horizontal speed into vertical and keep 25% as horizontal, so you can
+                // pop straight up onto a block instead of always launching a full block
+                // forward.
+                vel = new Vec3d(vel.x * 0.25, DEFAULT_JUMPSPEED + 0.75 * hspeed, vel.z * 0.25);
+            }
         } else {
             vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED, vel.z);
         }
