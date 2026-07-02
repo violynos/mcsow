@@ -13,43 +13,68 @@ public final class WarsowPmove {
 
     public static void setEnabled(boolean e) { enabled = e; }
 
-    // --- pmove constants ---
-    public static final int    PM_DASHJUMP_TIMEDELAY         = 1000;
-    public static final int    PM_WALLJUMP_TIMEDELAY          = 1300;
-    public static final int    PM_WALLJUMP_FAILED_TIMEDELAY  = 700;
-    public static final int    PM_SPECIAL_CROUCH_INHIBIT     = 400;
+    // === Warsow constants (exact values from gs_pmove.cpp) ===
+    // All velocities in Warsow units/sec; multiplied by UNIT_SCALE * FT at output.
 
-    public static final float  PM_FRICTION                   = 8.0f;
-    public static final float  PM_ACCELERATE                 = 12.0f;
-    public static final float  PM_AIRACCELERATE              = 1.0f;
-    public static final float  PM_AIRDECELERATE              = 2.0f;
-    public static final float  PM_AIRCONTROL                 = 150.0f;
-    public static final float  PM_STRAFE_BUNNY_ACCEL         = 70.0f;
-    public static final float  PM_WISHSPEED                  = 30.0f;
-    public static final float  PM_AIR_FORWARD_ACCEL          = 1.00001f;
-    public static final float  PM_BUNNY_ACCEL                = 0.1586f;
-    public static final float  PM_BUNNY_TOPSPEED             = 900.0f;
-    public static final float  PM_TURN_ACCEL                 = 6.0f;
-    public static final float  PM_BACKTOSIDERATIO            = 0.9f;
+    private static final float FT = 0.05f; // 20 ticks/sec
+    private static final float UNIT_SCALE = 0.01875f; // 1 Warsow unit → MC blocks
 
-    public static final float  DEFAULT_PLAYERSPEED           = 320.0f;
-    public static final float  DEFAULT_WALKSPEED             = 160.0f;
-    public static final float  DEFAULT_CROUCHEDSPEED         = 100.0f;
-    public static final float  DEFAULT_JUMPSPEED             = 280.0f;
-    public static final float  DEFAULT_DASHSPEED             = 475.0f;
-    public static final float  GRAVITY                       = 850.0f;
-    public static final float  GRAVITY_COMPENSATE            = GRAVITY / 800.0f;
+    private static final float GRAVITY            = 1120.0f;
+    private static final float GRAVITY_SCALE      = 1.0f; // no scaling, raw Warsow
+    private static final float GRAVITY_COMPENSATE = GRAVITY / 800.0f; // = 1.0 at 800
 
-    public static final float  PM_DASHUPSPEED                = 174.0f * GRAVITY_COMPENSATE;
-    public static final float  PM_WJUPSPEED                  = 330.0f * GRAVITY_COMPENSATE;
-    public static final float  PM_WJBOUNCEFACTOR             = 0.3f;
-    public static final float  PM_WJMINSPEED                 = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f;
+    // speeds
+    public static final float DEFAULT_PLAYERSPEED   = 320.0f;
+    public static final float DEFAULT_WALKSPEED     = 160.0f;
+    public static final float DEFAULT_CROUCHEDSPEED = 100.0f;
+    public static final float DEFAULT_JUMPSPEED     = 280.0f * GRAVITY_COMPENSATE;
+    public static final float DEFAULT_DASHSPEED     = 450.0f; // minimum dash speed
 
-    private static final int CROUCHTIME = 100;
+    // friction / acceleration
+    private static final float PM_FRICTION         = 8.0f;
+    private static final float PM_ACCELERATE       = 12.0f;
+    private static final float PM_AIRACCELERATE    = 1.0f;
+    private static final float PM_AIRDECELERATE    = 2.0f;
+    private static final float PM_DECELERATE       = 12.0f;
+    private static final float PM_WATERFRICTION    = 1.0f;
+    private static final float PM_WATERACCELERATE  = 10.0f;
 
-    private static final java.util.Map<PlayerEntity, PlayerMoveState> STATES = new java.util.WeakHashMap<>();
+    // air control
+    private static final float PM_AIRCONTROL         = 150.0f;
+    private static final float PM_STRAFE_BUNNY_ACCEL = 70.0f;
+    private static final float PM_WISHSPEED          = 30.0f;
+    private static final float PM_AIR_FORWARD_ACCEL  = 1.00001f;
+    private static final float PM_BUNNY_ACCEL        = 0.1593f;
+    private static final float PM_BUNNY_TOPSPEED     = 925.0f;
+    private static final float PM_TURN_ACCEL         = 4.0f;
+    private static final float PM_BACKTOSIDERATIO    = 0.8f;
+    private static final float PM_FORWARD_ACCEL_TIMEDELAY = 0;
+
+    // dash / walljump
+    public static final int    PM_DASHJUMP_TIMEDELAY        = 1000;
+    public static final int    PM_WALLJUMP_TIMEDELAY        = 1300;
+    public static final int    PM_WALLJUMP_FAILED_TIMEDELAY = 700;
+    public static final int    PM_SPECIAL_CROUCH_INHIBIT    = 400;
+    public static final int    PM_AIRCONTROL_BOUNCE_DELAY   = 200;
+    public static final int    PM_CROUCHSLIDE_TIMEDELAY     = 700;
+    public static final int    PM_CROUCHSLIDE_FADE          = 500;
+    public static final int    PM_CROUCHSLIDE_CONTROL       = 3;
+    public static final int    CROUCHTIME                   = 100;
+
+    private static final float PM_DASHUPSPEED       = 174.0f * GRAVITY_COMPENSATE;
+    private static final float PM_WJUPSPEED          = 330.0f * GRAVITY_COMPENSATE;
+    private static final float PM_FAILEDWJUPSPEED    = 50.0f * GRAVITY_COMPENSATE;
+    private static final float PM_WJBOUNCEFACTOR     = 0.3f;
+    private static final float PM_FAILEDWJBOUNCEFACTOR = 0.1f;
+    private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f;
+    private static final float PM_OVERBOUNCE         = 1.01f;
+    private static final float STEPSIZE              = 18.0f;
+    private static final float SPEEDKEY              = 500.0f;
+
+    private static final java.util.Map<Integer, PlayerMoveState> STATES = new java.util.HashMap<>();
 
     private static class PlayerMoveState {
+        Vec3d velocity = Vec3d.ZERO;
         boolean jumpHeld;
         boolean specialHeld;
         int dashTime;
@@ -58,44 +83,128 @@ public final class WarsowPmove {
         boolean walljumping;
         boolean dashing;
         int crouchTime;
+        int forwardTime;
+        int crouchSlideTime;
+        boolean crouchSliding;
+        boolean wasInAir;
+        boolean jumped;
     }
 
     private static PlayerMoveState state(PlayerEntity p) {
-        return STATES.computeIfAbsent(p, k -> new PlayerMoveState());
+        return STATES.computeIfAbsent(p.getId(), k -> new PlayerMoveState());
     }
 
     public static void clear(PlayerEntity p) {
-        STATES.remove(p);
+        STATES.remove(p.getId());
+    }
+
+    private static double mcDelta(double warsowVel) {
+        return warsowVel * FT * UNIT_SCALE;
     }
 
     // ================================================================
-    //  MAIN ENTRY — called from PlayerEntityMixin (overrides travel())
+    //  MAIN ENTRY
     // ================================================================
     public static void move(PlayerEntity player, boolean specialKeyDown,
                              boolean jumpPressed, boolean crouchPressed,
                              float fwdPush, float sidePush) {
-        float speed = 0.3f;
+        PlayerMoveState s = state(player);
+        Vec3d vel = s.velocity;
+
+        // ---- on-ground (checked first, before anything) ----
+        boolean onGround = player.isOnGround();
+        boolean justLanded = onGround && s.wasInAir;
+
+        // ---- JUMP FIRST (must run before timers, dash, directions) ----
+        s.jumped = false;
+        if (justLanded && jumpPressed) s.jumpHeld = false;
+        vel = checkJump(vel, s, onGround, jumpPressed);
+
+        // ---- direction vectors from yaw (needed for dash) ----
         float yawRad = player.getYaw() * MathHelper.RADIANS_PER_DEGREE;
         float sy = MathHelper.sin(yawRad);
         float cy = MathHelper.cos(yawRad);
+        Vec3d forward = new Vec3d(-sy, 0, cy);
+        Vec3d right   = new Vec3d(cy, 0, sy);
 
-        float f = fwdPush > 0.01f ? 1 : (fwdPush < -0.01f ? -1 : 0);
-        float s = sidePush > 0.01f ? 1 : (sidePush < -0.01f ? -1 : 0);
+        // ---- timer decrements ----
+        int ms = 50;
+        if (s.dashTime > 0) s.dashTime = Math.max(0, s.dashTime - ms);
+        if (s.crouchTime > 0) s.crouchTime = Math.max(0, s.crouchTime - ms);
+        if (s.forwardTime > 0) s.forwardTime = Math.max(0, s.forwardTime - ms);
+        if (s.crouchSlideTime > 0) {
+            s.crouchSlideTime = Math.max(0, s.crouchSlideTime - ms);
+            if (s.crouchSlideTime <= 0) {
+                s.crouchSlideTime = 0;
+                s.crouchSliding = false;
+            }
+        }
 
-        double vx = -sy * f * speed + cy * s * speed;
-        double vz =  cy * f * speed + sy * s * speed;
-        double vy = 0;
+        // ---- if jumped this tick, skip dash entirely (no cooldown) ----
+        boolean guard = s.jumped || (onGround && jumpPressed);
+        if (guard) {
+            // dash skipped; walljump won't fire because onGround is false after recheck
+        } else {
+            // landing while holding R: reset dash state so it fires on contact
+            if (justLanded && specialKeyDown) {
+                s.specialHeld = false;
+                s.dashTime = 0;
+            }
+            vel = checkDash(vel, s, onGround, specialKeyDown, forward, right, fwdPush, sidePush);
+        }
 
-        if (jumpPressed)   vy = 0.4;
-        if (crouchPressed) vy = -0.4;
+        // recheck ground after jump/dash
+        if (onGround && vel.y > 1.0f) {
+            onGround = false;
+            justLanded = false;
+        }
 
-        Vec3d delta = new Vec3d(vx, vy, vz);
+        // ---- skip ground physics on landing only if a trigger (jump/dash) keeps us airborne ----
+        boolean stayAirborne = justLanded && (s.jumped || s.dashing);
+
+        // ---- friction (ground only) ----
+        if (onGround && !stayAirborne) {
+            vel = applyFriction(vel, s, FT);
+        }
+
+        // ---- wish direction ----
+        double wishX = forward.x * fwdPush + right.x * sidePush;
+        double wishZ = forward.z * fwdPush + right.z * sidePush;
+        double wishLen = Math.sqrt(wishX * wishX + wishZ * wishZ);
+        // clamp to maxspeed
+        float maxspeed = DEFAULT_PLAYERSPEED;
+        float wishspeed = (float) Math.min(wishLen, maxspeed);
+        Vec3d wishdir;
+        if (wishLen > 0.001) {
+            wishdir = new Vec3d(wishX / wishLen, 0, wishZ / wishLen);
+        } else {
+            wishdir = Vec3d.ZERO;
+        }
+
+        // ---- ground or air move ----
+        if (onGround) {
+            if (!stayAirborne) {
+                vel = groundMove(vel, wishdir, wishspeed, FT);
+            }
+        } else {
+            vel = vel.add(0, -GRAVITY * FT * GRAVITY_SCALE, 0);
+        }
+
+        // ---- track landing state for next tick ----
+        s.wasInAir = !onGround;
+
+        // ---- store velocity for next tick ----
+        s.velocity = vel;
+
+        // ---- apply to entity ----
+        Vec3d delta = new Vec3d(mcDelta(vel.x), mcDelta(vel.y), mcDelta(vel.z));
         player.setVelocity(delta);
         player.move(MovementType.SELF, delta);
+        System.out.println("[MCSOW] height=" + String.format("%.3f", player.getY()));
     }
 
     // ================================================================
-    //  ACCELERATION HELPERS (immutable Vec3d)
+    //  ACCELERATION HELPERS
     // ================================================================
     private static Vec3d accelerate(Vec3d vel, Vec3d wishdir, float wishspeed, float accel, float ft) {
         double cur = vel.dotProduct(wishdir);
@@ -130,11 +239,22 @@ public final class WarsowPmove {
         double as = PM_TURN_ACCEL * maxSpeed * ft;
         if (as > add) as = add;
 
+        if (PM_BACKTOSIDERATIO < 1.0f) {
+            Vec3d curDir = curVel.normalize();
+            double dot = ad.dotProduct(curDir);
+            if (dot < 0) {
+                ad = ad.add(curDir.x * -(1.0f - PM_BACKTOSIDERATIO) * dot,
+                            0,
+                            curDir.z * -(1.0f - PM_BACKTOSIDERATIO) * dot);
+            }
+        }
+
         return new Vec3d(vel.x + as * ad.x, vel.y, vel.z + as * ad.z);
     }
 
     private static Vec3d airControl(Vec3d vel, Vec3d wishdir, float wishspeed, float ft) {
         if (PM_AIRCONTROL == 0) return vel;
+        if (wishspeed == 0) return vel;
 
         double z = vel.y;
         Vec3d hvel = new Vec3d(vel.x, 0, vel.z);
@@ -143,7 +263,7 @@ public final class WarsowPmove {
         Vec3d dir = hvel.normalize();
 
         double dot = dir.dotProduct(wishdir);
-        double k = 32 * PM_AIRCONTROL * dot * dot * ft;
+        double k = 32.0 * PM_AIRCONTROL * dot * dot * ft;
 
         if (dot > 0) {
             dir = new Vec3d(
@@ -168,29 +288,45 @@ public final class WarsowPmove {
     }
 
     // ================================================================
-    //  FRICTION
+    //  FRICTION (Warsow PM_Friction)
     // ================================================================
-    private static Vec3d applyFriction(Vec3d vel, float ft) {
-        double spd = vel.length();
-        if (spd < 0.1) return new Vec3d(0, vel.y, 0);
-
-        float control = Math.max((float) spd, PM_AIRDECELERATE);
+    private static Vec3d applyFriction(Vec3d vel, PlayerMoveState s, float ft) {
+        double spdSq = vel.x * vel.x + vel.z * vel.z; // horizontal only for ground friction
+        if (spdSq < 1.0) {
+            return new Vec3d(0, vel.y, 0);
+        }
+        double spd = Math.sqrt(spdSq);
+        float control = Math.max((float) spd, PM_DECELERATE);
         double drop = control * PM_FRICTION * ft;
+
+        if (s.crouchSliding) {
+            if (s.crouchSlideTime < PM_CROUCHSLIDE_FADE) {
+                drop *= 1.0 - Math.sqrt((double) s.crouchSlideTime / PM_CROUCHSLIDE_FADE);
+            } else {
+                drop = 0;
+            }
+        }
+
         double newSpd = Math.max(0, spd - drop);
-        return vel.multiply(newSpd / spd);
+        double ratio = (spd > 0.001) ? newSpd / spd : 0;
+        return new Vec3d(vel.x * ratio, vel.y, vel.z * ratio);
     }
 
     // ================================================================
-    //  JUMP
+    //  JUMP (Warsow PM_CheckJump)
     // ================================================================
     private static Vec3d checkJump(Vec3d vel, PlayerMoveState s, boolean onGround, boolean jumpPressed) {
-        if (!jumpPressed) { s.jumpHeld = false; return vel; }
+        if (!jumpPressed) {
+            s.jumpHeld = false;
+            return vel;
+        }
         if (s.jumpHeld) return vel;
         if (!onGround) return vel;
 
         s.jumpHeld = true;
-        float js = DEFAULT_JUMPSPEED * GRAVITY_COMPENSATE;
-        vel = new Vec3d(vel.x, vel.y > 0.1 ? vel.y + js : js, vel.z);
+        s.jumped = true;
+
+        vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED, vel.z);
 
         s.dashTime = 0;
         s.walljumpTime = 0;
@@ -200,7 +336,7 @@ public final class WarsowPmove {
     }
 
     // ================================================================
-    //  DASH
+    //  DASH (Warsow PM_CheckDash)
     // ================================================================
     private static Vec3d checkDash(Vec3d vel, PlayerMoveState s, boolean onGround,
                                     boolean specialDown, Vec3d flatFwd, Vec3d right,
@@ -216,15 +352,22 @@ public final class WarsowPmove {
         s.dashing = true;
         s.walljumping = false;
 
-        float upSpeed = vel.y <= 0 ? PM_DASHUPSPEED : PM_DASHUPSPEED + (float) vel.y;
+        float upSpeed = PM_DASHUPSPEED;
 
-        Vec3d dashDir = new Vec3d(
-            flatFwd.x * fwdPush + right.x * sidePush,
-            0,
-            flatFwd.z * fwdPush + right.z * sidePush
-        );
-        if (dashDir.lengthSquared() < 0.0001f) dashDir = flatFwd;
-        dashDir = dashDir.normalize();
+        // dash direction: input-based if wasd pressed, otherwise camera forward
+        boolean hasInput = Math.abs(fwdPush) > 0.001f || Math.abs(sidePush) > 0.001f;
+        Vec3d dashDir;
+        if (hasInput) {
+            dashDir = new Vec3d(
+                flatFwd.x * fwdPush + right.x * sidePush,
+                0,
+                flatFwd.z * fwdPush + right.z * sidePush
+            );
+            if (dashDir.lengthSquared() < 0.0001f) dashDir = flatFwd;
+            dashDir = dashDir.normalize();
+        } else {
+            dashDir = flatFwd;
+        }
 
         float hSpeed = (float) Math.sqrt(vel.x * vel.x + vel.z * vel.z);
         float dashSpeed = Math.max(hSpeed, DEFAULT_DASHSPEED);
@@ -234,18 +377,18 @@ public final class WarsowPmove {
     }
 
     // ================================================================
-    //  WALLJUMP
+    //  WALLJUMP (Warsow PM_CheckWallJump)
     // ================================================================
     private static Vec3d checkWalljump(PlayerEntity player, Vec3d vel, PlayerMoveState s,
                                         boolean onGround, boolean specialDown) {
         if (!specialDown) s.specialHeld = false;
-        if (onGround)                       { s.walljumping = false; s.walljumpCount = false; }
-        if (s.walljumping && vel.y < 0)      s.walljumping = false;
-        if (s.walljumpTime <= 0)             s.walljumpCount = false;
+        if (onGround) { s.walljumping = false; s.walljumpCount = false; }
+        if (s.walljumping && vel.y < 0) s.walljumping = false;
+        if (s.walljumpTime <= 0) s.walljumpCount = false;
         if (s.dashing && s.dashTime > (PM_DASHJUMP_TIMEDELAY - 100)) return vel;
         if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0) return vel;
 
-        Vec3d normal = findWallNormal(player);
+        Vec3d normal = findWallNormal(player, vel);
         if (normal == null) return vel;
 
         float oldUp = (float) vel.y;
@@ -266,14 +409,12 @@ public final class WarsowPmove {
         return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
     }
 
-    private static Vec3d findWallNormal(PlayerEntity player) {
+    private static Vec3d findWallNormal(PlayerEntity player, Vec3d vel) {
         Box box = player.getBoundingBox();
         double hw = box.getLengthX() / 2;
         double hd = box.getLengthZ() / 2;
-        Vec3d vel = player.getVelocity();
-        double velOffset = Math.abs(vel.x) * 0.015 + Math.abs(vel.z) * 0.015;
+        double velOffset = (Math.abs(vel.x) + Math.abs(vel.z)) * 0.015;
 
-        // check 12 radial directions
         for (int i = 0; i < 12; i++) {
             double angle = (2 * Math.PI / 12) * i;
             double dx = Math.cos(angle) * (hw + velOffset + 0.1);
@@ -287,60 +428,41 @@ public final class WarsowPmove {
     }
 
     // ================================================================
-    //  WATER
-    // ================================================================
-    private static Vec3d waterMove(Vec3d vel, Vec3d forward, Vec3d right,
-                                    float fwdPush, float sidePush, float maxSpeed, float ft) {
-        Vec3d wishvel = new Vec3d(
-            forward.x * fwdPush + right.x * sidePush,
-            forward.y * fwdPush + right.y * sidePush,
-            forward.z * fwdPush + right.z * sidePush
-        );
-        if (fwdPush == 0 && sidePush == 0) {
-            wishvel = wishvel.add(0, -60 * ft, 0);
-        }
-        double wl = wishvel.length();
-        if (wl > 0.001) {
-            Vec3d wd = wishvel.normalize();
-            float ws = (float) Math.min(wl, maxSpeed) * 0.5f;
-            vel = accelerate(vel, wd, ws, 10, ft);
-        }
-        return vel;
-    }
-
-    // ================================================================
-    //  GROUND
+    //  GROUND MOVE
     // ================================================================
     private static Vec3d groundMove(Vec3d vel, Vec3d wishdir, float wishspeed, float ft) {
         if (vel.y > 0) vel = new Vec3d(vel.x, 0, vel.z);
-        vel = accelerate(vel, wishdir, wishspeed, PM_ACCELERATE, ft);
-        return vel.add(0, -GRAVITY * ft, 0);
+        return accelerate(vel, wishdir, wishspeed, PM_ACCELERATE, ft);
     }
 
     // ================================================================
-    //  AIR
+    //  AIR MOVE (Warsow PM_Move air path)
     // ================================================================
     private static Vec3d airMove(Vec3d vel, Vec3d wishdir, float wishspeed,
                                   float sidePush, float fwdPush,
                                   PlayerMoveState s, float ft, float maxSpeed) {
         float wishspeed2 = wishspeed;
-        boolean decel = vel.dotProduct(wishdir) < 0;
-        float accel = (decel && !s.walljumping) ? PM_AIRDECELERATE : PM_AIRACCELERATE;
+        float accel = PM_AIRACCELERATE;
         if (s.walljumping || s.dashing) accel = 0;
 
-        // +strafe bunnyhop
         boolean strafeBunny = sidePush != 0 && fwdPush == 0;
         if (strafeBunny && wishspeed > PM_WISHSPEED) {
             wishspeed = PM_WISHSPEED;
             accel = PM_STRAFE_BUNNY_ACCEL;
         }
 
-        boolean fwdBunny = true;
         boolean accelerating = vel.dotProduct(wishdir) > 0;
         boolean inhibit = s.walljumping || s.dashing;
 
+        boolean fwdBunny = true;
+        if (s.forwardTime > 0) {
+            fwdBunny = false;
+        }
+        if (!(sidePush == 0 && fwdPush != 0)) {
+            fwdBunny = false;
+        }
+
         if (fwdBunny && !inhibit && accelerating && sidePush == 0 && fwdPush != 0) {
-            // forward bunnyhop
             vel = airAccelerate(vel, wishdir, wishspeed, maxSpeed, ft);
         } else {
             vel = accelerate(vel, wishdir, wishspeed, accel, ft);
@@ -349,7 +471,7 @@ public final class WarsowPmove {
             }
         }
 
-        return vel.add(0, -GRAVITY * ft, 0);
+        return vel;
     }
 
     private WarsowPmove() {}

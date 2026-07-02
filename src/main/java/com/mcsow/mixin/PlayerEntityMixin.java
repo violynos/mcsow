@@ -4,8 +4,6 @@ import com.mcsow.movement.SpecialState;
 import com.mcsow.movement.WarsowPmove;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.PlayerInput;
 import net.minecraft.util.math.Vec2f;
 import net.minecraft.util.math.Vec3d;
 import org.spongepowered.asm.mixin.Mixin;
@@ -24,25 +22,15 @@ public abstract class PlayerEntityMixin {
         if (self.isGliding()) return;
 
         boolean special = SpecialState.isDown(self.getId());
-        boolean jumpPressed = self.isJumping();
         boolean crouchPressed = self.isSneaking();
 
-        float fwdPush = 0, sidePush = 0;
         if (self instanceof ClientPlayerEntity cpe) {
             Vec2f mv = cpe.input.getMovementInput();
-            sidePush = mv.x;
-            fwdPush = mv.y;
-        } else if (self instanceof ServerPlayerEntity spe) {
-            PlayerInput pi = spe.getPlayerInput();
-            if (pi.forward())  fwdPush += 1;
-            if (pi.backward()) fwdPush -= 1;
-            if (pi.left())     sidePush += 1;
-            if (pi.right())    sidePush -= 1;
+            float fwdPush = mv.y * WarsowPmove.DEFAULT_PLAYERSPEED;
+            float sidePush = mv.x * WarsowPmove.DEFAULT_PLAYERSPEED;
+            boolean jumpPressed = self.isJumping();
+            WarsowPmove.move(self, special, jumpPressed, crouchPressed, fwdPush, sidePush);
         }
-        fwdPush *= WarsowPmove.DEFAULT_PLAYERSPEED;
-        sidePush *= WarsowPmove.DEFAULT_PLAYERSPEED;
-
-        WarsowPmove.move(self, special, jumpPressed, crouchPressed, fwdPush, sidePush);
         ci.cancel();
     }
 }
