@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.4.0, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.4.0a, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -39,7 +39,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ## Current Physics Flow (each tick)
 
 1. `onGround` / `justLanded` detection (`wasInAir` from previous tick)
-2. **Jump** check (`checkJump`): sets `vel.y = DEFAULT_JUMPSPEED` (never additive), resets dash state. **Crouch-jump**: if crouched, converts 75% of horizontal speed to vertical (`vel.y = DEFAULT_JUMPSPEED + 0.75·hspeed`) and keeps 25% horizontal — trade momentum for height. **Crouch LAUNCH** (v1.3.3): if this is the landing frame AND holding jump+crouch AND `hspeed ≥ CROUCH_LAUNCH_MIN_SPEED`, instead KEEP all horizontal momentum and add a big vertical boost (`vel.y = DEFAULT_JUMPSPEED + CROUCH_LAUNCH_FACTOR·hspeed`, factor 0.6) — a timing reward, no auto-jump/sliding
+2. **Jump** check (`checkJump`): sets `vel.y = jumpSpeed` (never additive), resets dash state. **Crouch-jump** (v1.4.0a): if crouched, always converts 75% of horizontal speed to vertical (`vel.y = jumpSpeed + 0.75·hspeed`) and keeps 25% horizontal — trade momentum for height; at high speed the big vertical component launches you upward. (The earlier separate keep-horizontal "launch" branch was removed — it contradicted crouch-jump's speed-reduction.)
 3. Timer decrements (dashTime, crouchTime, forwardTime, crouchSlideTime)
 4. Dash guard: skip dash if `s.jumped || (onGround && jumpPressed)`
 5. **Dash** check (`checkDash`): input-based direction (WASD relative to camera) or camera-forward, sets vertical to `PM_DASHUPSPEED`, horizontal to max(current speed, DEFAULT_DASHSPEED)
