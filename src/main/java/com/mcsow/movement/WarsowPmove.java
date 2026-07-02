@@ -43,8 +43,9 @@ public final class WarsowPmove {
     private static final float UNIT_SCALE = 0.01875f; // 1 Warsow unit → MC blocks
 
     // water movement
-    private static final float WATER_GRAVITY_SCALE = 0.5f;   // half gravity while in water (no friction on it)
-    private static float       WATER_UPSPEED       = 280.0f; // up-boost from jump/dash held in water (friction-limited)
+    private static final float WATER_GRAVITY_SCALE  = 0.5f;  // half gravity while in water (no friction on it)
+    private static final float WATER_FRICTION_SCALE = 0.2f;  // water friction = ground friction × 0.2
+    private static float       WATER_UPSPEED        = 280.0f; // up-boost from jump/dash held in water (friction-limited)
 
     // config-tunable (see McSowConfig / applyConfig); GRAVITY_COMPENSATE is fixed at 1.4
     private static float GRAVITY                  = 1120.0f;
@@ -452,13 +453,18 @@ public final class WarsowPmove {
     // left alone, per spec.
     private static Vec3d waterFriction(Vec3d vel, PlayerMoveState s, boolean submerged, float ft) {
         double vx = vel.x, vy = vel.y, vz = vel.z;
-        if (submerged) {
-            Vec3d h = applyFriction(new Vec3d(vx, 0, vz), s, ft);
-            vx = h.x; vz = h.z;
+        float friction = PM_FRICTION * WATER_FRICTION_SCALE; // ground friction × 0.2
+        if (submerged) { // horizontal (surface is frictionless except jump/dash)
+            double spd = Math.sqrt(vx * vx + vz * vz);
+            if (spd < 1.0) { vx = 0; vz = 0; }
+            else {
+                double drop = Math.max(spd, PM_DECELERATE) * friction * ft;
+                double ratio = Math.max(0, spd - drop) / spd;
+                vx *= ratio; vz *= ratio;
+            }
         }
         if (vy > 0) { // friction the jump/dash rise, not gravity's descent
-            double control = Math.max(vy, PM_DECELERATE);
-            vy = Math.max(0, vy - control * PM_FRICTION * ft);
+            vy = Math.max(0, vy - Math.max(vy, PM_DECELERATE) * friction * ft);
         }
         return new Vec3d(vx, vy, vz);
     }
