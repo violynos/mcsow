@@ -174,6 +174,9 @@ public final class WarsowPmove {
                 vel = groundMove(vel, wishdir, wishspeed, FT);
             }
         } else {
+            // horizontal air control + bunnyhop (airMove preserves vel.y),
+            // then gravity as an independent vertical term
+            vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, s, FT, maxspeed);
             vel = vel.add(0, -GRAVITY * FT * GRAVITY_SCALE, 0);
         }
 
@@ -187,7 +190,6 @@ public final class WarsowPmove {
         Vec3d delta = new Vec3d(mcDelta(vel.x), mcDelta(vel.y), mcDelta(vel.z));
         player.setVelocity(delta);
         player.move(MovementType.SELF, delta);
-        System.out.println("[MCSOW] height=" + String.format("%.3f", player.getY()));
     }
 
     // ================================================================

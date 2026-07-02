@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.1.5, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.2.0, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -45,7 +45,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 7. `stayAirborne`: skip friction/groundMove when landing with trigger
 8. **Friction** (`applyFriction`): horizontal only, Warsow formula with control = max(spd, PM_DECELERATE)
 9. Wish direction from forward/right vectors × WASD input
-10. **Ground move** or **Air move** (gravity only in air currently; air control deferred)
+10. **Ground move** or **Air move** (`airMove`: air control + bunnyhop via airAccelerate/airControl, plus gravity as a separate vertical term)
 11. Store velocity → `player.setVelocity(delta)` + `player.move(MovementType.SELF, delta)`
 
 ## Key Constants (current raw Warsow values — ×1.4 via GRAVITY)
@@ -87,7 +87,7 @@ Walljump was disabled due to inconsistent collision detection, and all its code 
 ## Next Steps
 
 - Fine-tune constants (jump height, dash height, friction, gravity)
-- Phase 3: Air movement (air control, bunnyhop, WASD in air)
+- ~~Phase 3: Air movement (air control, bunnyhop, WASD in air)~~ — DONE (v1.2.0): `airMove` wired into the air branch; may need constant tuning by feel
 - Phase 4: Water move, crouch slide
 - Phase 5: Server-side special-key networking for dedicated servers
 - Improve walljump collision detection (deferred)
