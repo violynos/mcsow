@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.2.0, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.2.1, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -45,8 +45,8 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 7. `stayAirborne`: skip friction/groundMove when landing with trigger
 8. **Friction** (`applyFriction`): horizontal only, Warsow formula with control = max(spd, PM_DECELERATE)
 9. Wish direction from forward/right vectors × WASD input
-10. **Ground move** or **Air move** (`airMove`: air control + bunnyhop via airAccelerate/airControl, plus gravity as a separate vertical term)
-11. Store velocity → `player.setVelocity(delta)` + `player.move(MovementType.SELF, delta)`
+10. **Ground move** (one step) or **Air move** (sub-stepped `AIR_SUBSTEPS`×/tick): exact port of Warsow's "Air Control" branch — `PM_Accelerate` (+strafe bunny accel) then `PM_Aircontrol` redirect, plus gravity per sub-step. Displacement accumulated across sub-steps.
+11. Convert accumulated Warsow-unit displacement → MC blocks via `UNIT_SCALE`, then `player.setVelocity(delta)` + `player.move(MovementType.SELF, delta)`
 
 ## Key Constants (current raw Warsow values — ×1.4 via GRAVITY)
 
@@ -87,7 +87,8 @@ Walljump was disabled due to inconsistent collision detection, and all its code 
 ## Next Steps
 
 - Fine-tune constants (jump height, dash height, friction, gravity)
-- ~~Phase 3: Air movement (air control, bunnyhop, WASD in air)~~ — DONE (v1.2.0): `airMove` wired into the air branch; may need constant tuning by feel
+- ~~Phase 3: Air movement (air control, bunnyhop, WASD in air)~~ — DONE (v1.2.1): exact port of Warsow "Air Control" mode (`PMFEAT_AIRCONTROL`, no fwdbunny). WASD alone does not accelerate; speed comes from strafe accel + air-control redirect. Sub-stepped `AIR_SUBSTEPS=3`×/tick. Ground/jump/dash constants kept on the existing (non-Warsow) 1.4-gravity baseline per user; retune air by feel later.
+- NOTE: mod's gravity baseline is NOT Warsow-exact — real Warsow is `GRAVITY=850`, `BASEGRAVITY=800`, `GRAVITY_COMPENSATE=1.0625`, `DEFAULT_DASHSPEED=475`. Mod currently uses `GRAVITY=1120`, compensate `1.4`, dash `450`. Reconcile if going for a full replica.
 - Phase 4: Water move, crouch slide
 - Phase 5: Server-side special-key networking for dedicated servers
 - Improve walljump collision detection (deferred)

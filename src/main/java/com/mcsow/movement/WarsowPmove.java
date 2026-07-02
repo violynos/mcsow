@@ -38,16 +38,14 @@ public final class WarsowPmove {
     private static final float PM_WATERFRICTION    = 1.0f;
     private static final float PM_WATERACCELERATE  = 10.0f;
 
-    // air control
-    private static final float PM_AIRCONTROL         = 150.0f;
-    private static final float PM_STRAFE_BUNNY_ACCEL = 70.0f;
-    private static final float PM_WISHSPEED          = 30.0f;
-    private static final float PM_AIR_FORWARD_ACCEL  = 1.00001f;
-    private static final float PM_BUNNY_ACCEL        = 0.1593f;
-    private static final float PM_BUNNY_TOPSPEED     = 925.0f;
-    private static final float PM_TURN_ACCEL         = 4.0f;
-    private static final float PM_BACKTOSIDERATIO    = 0.8f;
-    private static final float PM_FORWARD_ACCEL_TIMEDELAY = 0;
+    // air control (Warsow gs_pmove.c "Air Control" mode: PMFEAT_AIRCONTROL, no FWDBUNNY)
+    private static final float PM_AIRCONTROL         = 150.0f; // inertia→forward conversion
+    private static final float PM_STRAFE_BUNNY_ACCEL = 70.0f;  // accel when +strafe (side only)
+    private static final float PM_WISHSPEED          = 30.0f;  // clamp for +strafe wishspeed
+
+    // Sub-steps per 20 Hz MC tick for the air integration, to approximate
+    // Warsow's higher physics tick rate (air-strafe/air-control resolve finer).
+    private static final int   AIR_SUBSTEPS          = 3;
 
     // dash
     public static final int    PM_DASHJUMP_TIMEDELAY        = 1000;
@@ -72,7 +70,6 @@ public final class WarsowPmove {
         int dashTime;
         boolean dashing;
         int crouchTime;
-        int forwardTime;
         int crouchSlideTime;
         boolean crouchSliding;
         boolean wasInAir;
@@ -85,10 +82,6 @@ public final class WarsowPmove {
 
     public static void clear(PlayerEntity p) {
         STATES.remove(p.getId());
-    }
-
-    private static double mcDelta(double warsowVel) {
-        return warsowVel * FT * UNIT_SCALE;
     }
 
     // ================================================================
@@ -120,7 +113,6 @@ public final class WarsowPmove {
         int ms = 50;
         if (s.dashTime > 0) s.dashTime = Math.max(0, s.dashTime - ms);
         if (s.crouchTime > 0) s.crouchTime = Math.max(0, s.crouchTime - ms);
-        if (s.forwardTime > 0) s.forwardTime = Math.max(0, s.forwardTime - ms);
         if (s.crouchSlideTime > 0) {
             s.crouchSlideTime = Math.max(0, s.crouchSlideTime - ms);
             if (s.crouchSlideTime <= 0) {
@@ -168,16 +160,25 @@ public final class WarsowPmove {
             wishdir = Vec3d.ZERO;
         }
 
-        // ---- ground or air move ----
+        // ---- ground or air move → this tick's displacement in Warsow units ----
+        Vec3d dispWs;
         if (onGround) {
             if (!stayAirborne) {
                 vel = groundMove(vel, wishdir, wishspeed, FT);
             }
+            dispWs = vel.multiply(FT);
         } else {
-            // horizontal air control + bunnyhop (airMove preserves vel.y),
-            // then gravity as an independent vertical term
-            vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, s, FT, maxspeed);
-            vel = vel.add(0, -GRAVITY * FT * GRAVITY_SCALE, 0);
+            // Sub-step the air integration to approximate Warsow's higher physics
+            // tick rate: run air accel + control + gravity AIR_SUBSTEPS times, and
+            // accumulate the per-sub-step displacement. Collision happens once, via
+            // the single player.move() below.
+            double subFt = (double) FT / AIR_SUBSTEPS;
+            dispWs = Vec3d.ZERO;
+            for (int i = 0; i < AIR_SUBSTEPS; i++) {
+                vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, (float) subFt);
+                vel = vel.add(0, -GRAVITY * subFt * GRAVITY_SCALE, 0);
+                dispWs = dispWs.add(vel.multiply(subFt));
+            }
         }
 
         // ---- track landing state for next tick ----
@@ -186,8 +187,8 @@ public final class WarsowPmove {
         // ---- store velocity for next tick ----
         s.velocity = vel;
 
-        // ---- apply to entity ----
-        Vec3d delta = new Vec3d(mcDelta(vel.x), mcDelta(vel.y), mcDelta(vel.z));
+        // ---- apply to entity (Warsow units → MC blocks via UNIT_SCALE) ----
+        Vec3d delta = new Vec3d(dispWs.x * UNIT_SCALE, dispWs.y * UNIT_SCALE, dispWs.z * UNIT_SCALE);
         player.setVelocity(delta);
         player.move(MovementType.SELF, delta);
     }
@@ -204,45 +205,12 @@ public final class WarsowPmove {
         return vel.add(wishdir.x * as, wishdir.y * as, wishdir.z * as);
     }
 
-    private static Vec3d airAccelerate(Vec3d vel, Vec3d wishdir, float wishspeed, float maxSpeed, float ft) {
-        if (wishspeed == 0) return vel;
-
-        Vec3d curVel = new Vec3d(vel.x, 0, vel.z);
-        double curSpd = curVel.length();
-
-        if (wishspeed > curSpd * 1.01f) {
-            double as = curSpd + PM_AIR_FORWARD_ACCEL * maxSpeed * ft;
-            if (as < wishspeed) wishspeed = (float) as;
-        } else {
-            float f = (PM_BUNNY_TOPSPEED - (float) curSpd) / (PM_BUNNY_TOPSPEED - maxSpeed);
-            if (f < 0) f = 0;
-            wishspeed = Math.max((float) curSpd, maxSpeed) + PM_BUNNY_ACCEL * f * maxSpeed * ft;
-        }
-
-        Vec3d wv = new Vec3d(wishdir.x * wishspeed, 0, wishdir.z * wishspeed);
-        Vec3d ad = wv.subtract(curVel);
-        double add = ad.length();
-        if (add < 0.001) return vel;
-        ad = ad.normalize();
-
-        double as = PM_TURN_ACCEL * maxSpeed * ft;
-        if (as > add) as = add;
-
-        if (PM_BACKTOSIDERATIO < 1.0f) {
-            Vec3d curDir = curVel.normalize();
-            double dot = ad.dotProduct(curDir);
-            if (dot < 0) {
-                ad = ad.add(curDir.x * -(1.0f - PM_BACKTOSIDERATIO) * dot,
-                            0,
-                            curDir.z * -(1.0f - PM_BACKTOSIDERATIO) * dot);
-            }
-        }
-
-        return new Vec3d(vel.x + as * ad.x, vel.y, vel.z + as * ad.z);
-    }
-
-    private static Vec3d airControl(Vec3d vel, Vec3d wishdir, float wishspeed, float ft) {
+    // Warsow PM_Aircontrol: converts inertia to wish-direction while preserving
+    // horizontal speed (redirect only, no speed gain). Only runs when NOT holding a
+    // strafe key — matches Warsow's `if( smove != 0 ) return;` guard.
+    private static Vec3d airControl(Vec3d vel, Vec3d wishdir, float wishspeed, float sidePush, float ft) {
         if (PM_AIRCONTROL == 0) return vel;
+        if (sidePush != 0) return vel;   // can't air-control while +strafe
         if (wishspeed == 0) return vel;
 
         double z = vel.y;
@@ -255,6 +223,7 @@ public final class WarsowPmove {
         double k = 32.0 * PM_AIRCONTROL * dot * dot * ft;
 
         if (dot > 0) {
+            // can't change direction while slowing down (dot <= 0)
             dir = new Vec3d(
                 dir.x * speed + wishdir.x * k,
                 0,
@@ -362,40 +331,27 @@ public final class WarsowPmove {
     }
 
     // ================================================================
-    //  AIR MOVE (Warsow PM_Move air path)
+    //  AIR MOVE — exact port of Warsow gs_pmove.c "Air Control" branch
+    //  (PMFEAT_AIRCONTROL && !PMFEAT_FWDBUNNY). No forward-bunny: holding a
+    //  key without turning does not build speed. Speed comes from strafe
+    //  acceleration (PM_Accelerate at an angle) and air control redirects.
     // ================================================================
     private static Vec3d airMove(Vec3d vel, Vec3d wishdir, float wishspeed,
-                                  float sidePush, float fwdPush,
-                                  PlayerMoveState s, float ft, float maxSpeed) {
+                                  float sidePush, float fwdPush, float ft) {
         float wishspeed2 = wishspeed;
-        float accel = PM_AIRACCELERATE;
-        if (s.dashing) accel = 0;
 
-        boolean strafeBunny = sidePush != 0 && fwdPush == 0;
-        if (strafeBunny && wishspeed > PM_WISHSPEED) {
-            wishspeed = PM_WISHSPEED;
+        // decelerate when pushing against current velocity, else normal air accel
+        float accel = (vel.dotProduct(wishdir) < 0) ? PM_AIRDECELERATE : PM_AIRACCELERATE;
+
+        // +strafe bunnyhopping: strafe key held, forward/back NOT held
+        if (sidePush != 0 && fwdPush == 0) {
+            if (wishspeed > PM_WISHSPEED) wishspeed = PM_WISHSPEED;
             accel = PM_STRAFE_BUNNY_ACCEL;
         }
 
-        boolean accelerating = vel.dotProduct(wishdir) > 0;
-        boolean inhibit = s.dashing;
-
-        boolean fwdBunny = true;
-        if (s.forwardTime > 0) {
-            fwdBunny = false;
-        }
-        if (!(sidePush == 0 && fwdPush != 0)) {
-            fwdBunny = false;
-        }
-
-        if (fwdBunny && !inhibit && accelerating && sidePush == 0 && fwdPush != 0) {
-            vel = airAccelerate(vel, wishdir, wishspeed, maxSpeed, ft);
-        } else {
-            vel = accelerate(vel, wishdir, wishspeed, accel, ft);
-            if (!s.dashing) {
-                vel = airControl(vel, wishdir, wishspeed2, ft);
-            }
-        }
+        vel = accelerate(vel, wishdir, wishspeed, accel, ft);
+        // air control (redirect, speed-preserving); internally no-ops while +strafe
+        vel = airControl(vel, wishdir, wishspeed2, sidePush, ft);
 
         return vel;
     }
