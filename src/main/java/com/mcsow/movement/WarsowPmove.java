@@ -96,6 +96,17 @@ public final class WarsowPmove {
         STATES.remove(p.getId());
     }
 
+    // Keep our internal (Warsow-unit) velocity aligned with the player's real MC
+    // velocity. Called while vanilla controls motion (creative fly, elytra) so that
+    // when Warsow movement resumes, momentum is preserved instead of snapping to a
+    // stale value. MC velocity is blocks/tick; invert the output scaling to undo it.
+    public static void syncFromActual(PlayerEntity player) {
+        PlayerMoveState s = state(player);
+        Vec3d mcVel = player.getVelocity();
+        double k = 1.0 / (FT * UNIT_SCALE); // blocks/tick → Warsow units/sec
+        s.velocity = new Vec3d(mcVel.x * k, mcVel.y * k, mcVel.z * k);
+    }
+
     // ================================================================
     //  MAIN ENTRY
     // ================================================================

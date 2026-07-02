@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.3.1, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.3.2, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -33,6 +33,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 - **State**: `HashMap<Integer, PlayerMoveState>` keyed by entity ID. Shared between client/server via the same JVM (single player). Only the client thread accesses it now.
 - **`mcDelta(wsVal)`**: `wsVal * FT * UNIT_SCALE` converts Warsow velocity → MC blocks position delta per tick.
 - **Config**: `config/mcsow.json` with `{"enabled": false}` to disable mod movement.
+- **Velocity sync (v1.3.2)**: while vanilla controls motion (creative fly, elytra glide, spectator, vehicle, or disabled), the mixin calls `WarsowPmove.syncFromActual()` each tick to keep the internal Warsow-unit velocity aligned with the player's real MC velocity — so momentum carries over when Warsow movement resumes (fixes losing all speed the frame you stop flying / land with elytra).
 
 ## Current Physics Flow (each tick)
 

@@ -16,21 +16,37 @@ public abstract class PlayerEntityMixin {
     @Inject(method = "travel", at = @At("HEAD"), cancellable = true)
     private void mcsow$onTravel(Vec3d movementInput, CallbackInfo ci) {
         PlayerEntity self = (PlayerEntity)(Object)this;
-        if (!WarsowPmove.isEnabled()) return;
-        if (self.isSpectator() || self.getAbilities().flying) return;
-        if (self.hasVehicle()) return;
-        if (self.isGliding()) return;
 
-        boolean special = SpecialState.isDown(self.getId());
-        boolean crouchPressed = self.isSneaking();
+        // Situations where Warsow movement should NOT run and vanilla handles motion
+        // (creative fly, elytra glide, spectator, riding a vehicle, or mod disabled).
+        boolean vanillaControls = !WarsowPmove.isEnabled()
+            || self.isSpectator()
+            || self.getAbilities().flying
+            || self.hasVehicle()
+            || self.isGliding();
 
         if (self instanceof ClientPlayerEntity cpe) {
+            if (vanillaControls) {
+                // Keep our internal velocity in sync with the player's real velocity so
+                // momentum carries over seamlessly when we resume control (otherwise
+                // landing/stopping an elytra or fly for a frame zeroes your speed).
+                WarsowPmove.syncFromActual(self);
+                return;
+            }
+            boolean special = SpecialState.isDown(self.getId());
+            boolean crouchPressed = self.isSneaking();
             Vec2f mv = cpe.input.getMovementInput();
             float fwdPush = mv.y * WarsowPmove.DEFAULT_PLAYERSPEED;
             float sidePush = mv.x * WarsowPmove.DEFAULT_PLAYERSPEED;
             boolean jumpPressed = self.isJumping();
             WarsowPmove.move(self, special, jumpPressed, crouchPressed, fwdPush, sidePush);
+            ci.cancel();
+            return;
         }
+
+        // Non-client players (e.g. the integrated server's copy): keep cancelling
+        // travel so only the client runs physics — unless vanilla should control.
+        if (vanillaControls) return;
         ci.cancel();
     }
 }
