@@ -97,6 +97,9 @@ public final class WarsowPmove {
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
     // how close (MC blocks) the player must be to a wall to walljump off it
     private static final double WJ_WALL_PROBE        = 0.12;
+    // min away-from-wall speed (Warsow units) above which we skip the walljump (you're
+    // leaving the wall, not hugging it); at/below this we still allow it
+    private static final double WJ_AWAY_EPS          = 1.0;
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
     // clamped direction opens up (corner-skip) or a crouch-jump happens
@@ -557,6 +560,12 @@ public final class WarsowPmove {
 
         Vec3d normal = findWallNormal(player);
         if (normal == null) return vel;
+
+        // Don't walljump off a wall we're already moving AWAY from (the normal points
+        // away from the wall, so vel·normal > 0 means we're leaving it). This avoids
+        // false walljumps off slabs/ledges you're dashing away from — only walljump when
+        // moving toward the wall or roughly parallel to it.
+        if (vel.x * normal.x + vel.z * normal.z > WJ_AWAY_EPS) return vel;
 
         // launch away from the wall (Warsow non-stun path)
         float oldUp = (float) vel.y;

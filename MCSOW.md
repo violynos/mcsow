@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.5.5, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.5.6, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -46,7 +46,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 3. Timer decrements (dashTime, crouchTime, forwardTime, crouchSlideTime)
 4. Dash guard: skip dash if `s.jumped || (onGround && jumpPressed)`
 5. **Dash** check (`checkDash`): input-based direction (WASD relative to camera) or camera-forward, sets vertical to `PM_DASHUPSPEED`, horizontal to max(current speed, DEFAULT_DASHSPEED)
-5b. **Walljump** (`checkWalljump`): airborne + special pressed + hugging a wall → launch away from the wall normal (clip into-wall component, restore speed min `PM_WJMINSPEED`, up-boost `PM_WJUPSPEED`). Wall normal from `findWallNormal` (4 cardinal box probes). Cooldown `PM_WALLJUMP_TIMEDELAY`.
+5b. **Walljump** (`checkWalljump`): airborne + special pressed + hugging a wall → launch away from the wall normal (clip into-wall component, restore speed min `PM_WJMINSPEED`, up-boost `PM_WJUPSPEED`). Wall normal from `findWallNormal` (4 cardinal box probes). Cooldown `PM_WALLJUMP_TIMEDELAY`. **Away-check (v1.5.6)**: skips the walljump if already moving away from the wall (`vel·normal > WJ_AWAY_EPS`), so dashing back up a slope past slabs you descended doesn't false-walljump — only fires when moving toward the wall or roughly parallel.
 6. Recheck ground after jump/dash (`vel.y > 1.0f` → set airborne); reset vertical on ground contact (`onGround && vel.y<0 → vel.y=0`)
 7. `stayAirborne`: skip friction/groundMove when landing with trigger
 8. **Friction** (`applyFriction`): horizontal only, Warsow formula with control = max(spd, PM_DECELERATE)
