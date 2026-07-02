@@ -99,6 +99,15 @@ public final class McSowConfigScreen {
                 .setSaveConsumer(v -> cfg.crouchJumpRatio = v)
                 .build());
 
+        ConfigCategory misc = builder.getOrCreateCategory(Text.literal("Misc"));
+        misc.addEntry(eb.startFloatField(Text.literal("Hunger multiplier"), cfg.hungerMultiplier)
+                .setDefaultValue(3.0f).setMin(0f).setMax(20f)
+                .setTooltip(
+                    Text.literal("Multiplies how fast hunger drains from movement (× vanilla exhaustion)."),
+                    Text.literal("Fast Warsow movement covers lots of ground, so 3× keeps hunger meaningful. 1 = vanilla, 0 = no drain."))
+                .setSaveConsumer(v -> cfg.hungerMultiplier = v)
+                .build());
+
         return builder.build();
     }
 }

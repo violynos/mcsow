@@ -34,6 +34,7 @@ public final class McSowConfig {
         public float airControl      = 150.0f;              // air-control redirect strength
         public int   airSubsteps     = 3;                   // air physics sub-steps per tick
         public float crouchJumpRatio = 0.75f;               // fraction of horizontal → vertical
+        public float hungerMultiplier = 3.0f;               // ×vanilla exhaustion (hunger drain rate)
     }
 
     public static Data get() {
