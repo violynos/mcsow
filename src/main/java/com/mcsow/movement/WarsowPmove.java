@@ -132,10 +132,10 @@ public final class WarsowPmove {
         // ---- if jumped this tick, skip dash entirely (no cooldown) ----
         boolean guard = s.jumped || (onGround && jumpPressed);
         if (!guard) {
-            // landing while holding R: reset dash state so it fires on contact
+            // landing while holding R counts as a fresh press, but the
+            // dash cooldown (dashTime) still gates when it can fire
             if (justLanded && specialKeyDown) {
                 s.specialHeld = false;
-                s.dashTime = 0;
             }
             vel = checkDash(vel, s, onGround, specialKeyDown, forward, right, fwdPush, sidePush);
         }
