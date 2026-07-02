@@ -605,6 +605,16 @@ public final class WarsowPmove {
         float hSpeed = (float) Math.sqrt(vel.x * vel.x + vel.z * vel.z);
         float dashSpeed = Math.max(hSpeed, DEFAULT_DASHSPEED);
 
+        // if this dash points backward (>90°) relative to the buffered into-wall velocity,
+        // discard the wall-momentum buffer — it would otherwise restore a now-stale speed
+        // in a direction we've turned away from
+        double bufX = (s.wallBufferX > 0) ? s.wallSaveX : 0;
+        double bufZ = (s.wallBufferZ > 0) ? s.wallSaveZ : 0;
+        if (dashDir.x * bufX + dashDir.z * bufZ < 0) {
+            s.wallBufferX = 0;
+            s.wallBufferZ = 0;
+        }
+
         s.dashTime = PM_DASHJUMP_TIMEDELAY;
         return new Vec3d(dashDir.x * dashSpeed, upSpeed, dashDir.z * dashSpeed);
     }
