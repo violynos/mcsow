@@ -102,10 +102,9 @@ public final class WarsowPmove {
     // clamped direction opens up (corner-skip) or a crouch-jump happens
     private static final int    WALL_BUFFER_FRAMES   = 2;
 
-    // max ledge height (MC blocks) we auto-step up onto — 0.56 while grounded, 0.6
-    // (MC's default step height) mid-air
-    private static final double STEP_UP_HEIGHT_GROUND = 0.56;
-    private static final double STEP_UP_HEIGHT_AIR    = 0.6;
+    // max ledge height (MC blocks) we auto-step up onto (0.6 = MC's default step height),
+    // both grounded and mid-air
+    private static final double STEP_UP_HEIGHT        = 0.6;
     // how far below the feet a surface may be for step-up to apply (so it works mid-air)
     private static final double STEP_GROUND_DROP     = 1.0;
 
@@ -297,8 +296,7 @@ public final class WarsowPmove {
         // speed instead of clamping — so stepping onto slabs/edges is smooth. Works
         // mid-air (not just grounded), as long as there's ground close below.
         if ((blockedX || blockedZ) && hasGroundBelow(player)) {
-            double maxStep = player.isOnGround() ? STEP_UP_HEIGHT_GROUND : STEP_UP_HEIGHT_AIR;
-            double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, maxStep);
+            double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, STEP_UP_HEIGHT);
             if (step > 0) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
                 player.setOnGround(true);
