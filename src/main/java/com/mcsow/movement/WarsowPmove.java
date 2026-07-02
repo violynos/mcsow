@@ -2,6 +2,7 @@ package com.mcsow.movement;
 
 import net.minecraft.entity.MovementType;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
@@ -61,6 +62,14 @@ public final class WarsowPmove {
     private static final float STEPSIZE              = 18.0f;
     private static final float SPEEDKEY              = 500.0f;
 
+    // walljump (Warsow gs_pmove.c PM_CheckWallJump, non-OLDWALLJUMP path)
+    public static final int    PM_WALLJUMP_TIMEDELAY = 1300; // cooldown between walljumps (ms)
+    private static final float PM_WJUPSPEED          = 330.0f * GRAVITY_COMPENSATE; // walljump up-boost
+    private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
+    private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
+    // how close (MC blocks) the player must be to a wall to walljump off it
+    private static final double WJ_WALL_PROBE        = 0.12;
+
     private static final java.util.Map<Integer, PlayerMoveState> STATES = new java.util.HashMap<>();
 
     private static class PlayerMoveState {
@@ -69,6 +78,9 @@ public final class WarsowPmove {
         boolean specialHeld;
         int dashTime;
         boolean dashing;
+        int walljumpTime;
+        boolean walljumpCount;   // already walljumped since leaving this wall/ground
+        boolean walljumping;     // in the launch window (until apex or ground)
         int crouchTime;
         int crouchSlideTime;
         boolean crouchSliding;
@@ -97,6 +109,9 @@ public final class WarsowPmove {
         boolean onGround = player.isOnGround();
         boolean justLanded = onGround && s.wasInAir;
 
+        // ---- reset vertical speed on ground contact (not just on jump/dash) ----
+        if (onGround && vel.y < 0) vel = new Vec3d(vel.x, 0, vel.z);
+
         // ---- JUMP FIRST (must run before timers, dash, directions) ----
         s.jumped = false;
         if (justLanded && jumpPressed) s.jumpHeld = false;
@@ -112,6 +127,7 @@ public final class WarsowPmove {
         // ---- timer decrements ----
         int ms = 50;
         if (s.dashTime > 0) s.dashTime = Math.max(0, s.dashTime - ms);
+        if (s.walljumpTime > 0) s.walljumpTime = Math.max(0, s.walljumpTime - ms);
         if (s.crouchTime > 0) s.crouchTime = Math.max(0, s.crouchTime - ms);
         if (s.crouchSlideTime > 0) {
             s.crouchSlideTime = Math.max(0, s.crouchSlideTime - ms);
@@ -130,6 +146,8 @@ public final class WarsowPmove {
                 s.specialHeld = false;
             }
             vel = checkDash(vel, s, onGround, specialKeyDown, forward, right, fwdPush, sidePush);
+            // walljump uses the same key but only fires in the air against a wall
+            vel = checkWalljump(player, vel, s, onGround, specialKeyDown);
         }
 
         // recheck ground after jump/dash
@@ -166,6 +184,11 @@ public final class WarsowPmove {
             if (!stayAirborne) {
                 vel = groundMove(vel, wishdir, wishspeed, FT);
             }
+            // Apply gravity as a small downward probe so MC keeps firm ground contact.
+            // MC only sets onGround when a downward move is blocked; without this,
+            // delta.y == 0 makes onGround flicker off every other tick. The floor
+            // collision zeroes this vertical component again via the reconciliation below.
+            vel = vel.add(0, -GRAVITY * FT * GRAVITY_SCALE, 0);
             dispWs = vel.multiply(FT);
         } else {
             // Sub-step the air integration to approximate Warsow's higher physics
@@ -175,7 +198,7 @@ public final class WarsowPmove {
             double subFt = (double) FT / AIR_SUBSTEPS;
             dispWs = Vec3d.ZERO;
             for (int i = 0; i < AIR_SUBSTEPS; i++) {
-                vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, (float) subFt);
+                vel = airMove(vel, wishdir, wishspeed, sidePush, fwdPush, s.walljumping, (float) subFt);
                 vel = vel.add(0, -GRAVITY * subFt * GRAVITY_SCALE, 0);
                 dispWs = dispWs.add(vel.multiply(subFt));
             }
@@ -184,13 +207,27 @@ public final class WarsowPmove {
         // ---- track landing state for next tick ----
         s.wasInAir = !onGround;
 
-        // ---- store velocity for next tick ----
-        s.velocity = vel;
-
         // ---- apply to entity (Warsow units → MC blocks via UNIT_SCALE) ----
+        // MC's move() sweeps collisions and stops us flush against blocks. We then
+        // reconcile our internal velocity: if an axis moved less than intended it was
+        // blocked, so zero that axis so we don't keep pushing into the surface. This
+        // fixes the "float under a block" bug (ceiling kills upward vel → fall next
+        // tick) and clamps into-wall velocity while still allowing motion away from it.
         Vec3d delta = new Vec3d(dispWs.x * UNIT_SCALE, dispWs.y * UNIT_SCALE, dispWs.z * UNIT_SCALE);
+        Vec3d before = player.getEntityPos();
         player.setVelocity(delta);
         player.move(MovementType.SELF, delta);
+        Vec3d actual = player.getEntityPos().subtract(before);
+
+        double eps = 1.0e-4;
+        double vx = vel.x, vy = vel.y, vz = vel.z;
+        if (Math.abs(delta.x) > eps && Math.abs(actual.x) < Math.abs(delta.x) - eps) vx = 0;
+        if (Math.abs(delta.y) > eps && Math.abs(actual.y) < Math.abs(delta.y) - eps) vy = 0;
+        if (Math.abs(delta.z) > eps && Math.abs(actual.z) < Math.abs(delta.z) - eps) vz = 0;
+        vel = new Vec3d(vx, vy, vz);
+
+        // ---- store reconciled velocity for next tick ----
+        s.velocity = vel;
     }
 
     // ================================================================
@@ -333,6 +370,85 @@ public final class WarsowPmove {
     }
 
     // ================================================================
+    //  WALLJUMP (Warsow PM_CheckWallJump) — hug a wall and press special to
+    //  launch off it. The launch always goes away from the wall normal.
+    // ================================================================
+    private static Vec3d checkWalljump(PlayerEntity player, Vec3d vel, PlayerMoveState s,
+                                        boolean onGround, boolean specialDown) {
+        if (!specialDown) s.specialHeld = false;
+
+        // housekeeping (mirrors Warsow): clear walljump state on ground, at apex,
+        // and reset the once-per-wall count after the cooldown expires
+        if (onGround) { s.walljumping = false; s.walljumpCount = false; }
+        if (s.walljumping && vel.y < 0) s.walljumping = false;
+        if (s.walljumpTime <= 0) s.walljumpCount = false;
+
+        // don't walljump in the first 100 ms of a dash jump
+        if (s.dashing && s.dashTime > (PM_DASHJUMP_TIMEDELAY - 100)) return vel;
+
+        // gates: airborne, fresh special press, not already walljumping, off cooldown
+        if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0)
+            return vel;
+
+        Vec3d normal = findWallNormal(player);
+        if (normal == null) return vel;
+
+        // launch away from the wall (Warsow non-stun path)
+        float oldUp = (float) vel.y;
+        Vec3d hv = new Vec3d(vel.x, 0, vel.z);
+        float hSpeed = (float) hv.length();
+
+        hv = clipVelocity(hv, normal, 1.0005);   // remove the into-wall component
+        hv = hv.add(normal.x * PM_WJBOUNCEFACTOR, 0, normal.z * PM_WJBOUNCEFACTOR); // outward push
+        if (hSpeed < PM_WJMINSPEED) hSpeed = PM_WJMINSPEED;
+        double len = hv.length();
+        if (len > 0.001) {
+            hv = hv.multiply(hSpeed / len);       // restore speed in the new direction
+        } else {
+            hv = new Vec3d(normal.x * hSpeed, 0, normal.z * hSpeed); // straight away from wall
+        }
+
+        s.specialHeld = true;
+        s.walljumpCount = true;
+        s.walljumping = true;
+        s.dashing = false;
+        s.dashTime = 0;
+        s.walljumpTime = PM_WALLJUMP_TIMEDELAY;
+
+        // keep a faster existing up-speed, else apply the walljump up-boost
+        return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
+    }
+
+    // Find the away-from-wall normal by probing the four cardinal horizontal
+    // directions (MC blocks are axis-aligned). Blocked directions contribute an
+    // outward normal; summed and normalized so corners point out of the corner.
+    private static Vec3d findWallNormal(PlayerEntity player) {
+        Box box = player.getBoundingBox();
+        double p = WJ_WALL_PROBE;
+        double nx = 0, nz = 0;
+        if (!isFree(player, box.offset(p, 0, 0)))  nx -= 1; // wall on +x → normal points -x
+        if (!isFree(player, box.offset(-p, 0, 0))) nx += 1;
+        if (!isFree(player, box.offset(0, 0, p)))  nz -= 1;
+        if (!isFree(player, box.offset(0, 0, -p))) nz += 1;
+        if (nx == 0 && nz == 0) return null;
+        return new Vec3d(nx, 0, nz).normalize();
+    }
+
+    private static boolean isFree(PlayerEntity player, Box box) {
+        return player.getEntityWorld().isSpaceEmpty(player, box);
+    }
+
+    // Warsow GS_ClipVelocity: remove the component of vel along normal.
+    private static Vec3d clipVelocity(Vec3d vel, Vec3d normal, double overbounce) {
+        double dot = vel.dotProduct(normal);
+        return new Vec3d(
+            vel.x - dot * normal.x * overbounce,
+            vel.y - dot * normal.y * overbounce,
+            vel.z - dot * normal.z * overbounce
+        );
+    }
+
+    // ================================================================
     //  GROUND MOVE
     // ================================================================
     private static Vec3d groundMove(Vec3d vel, Vec3d wishdir, float wishspeed, float ft) {
@@ -347,7 +463,11 @@ public final class WarsowPmove {
     //  acceleration (PM_Accelerate at an angle) and air control redirects.
     // ================================================================
     private static Vec3d airMove(Vec3d vel, Vec3d wishdir, float wishspeed,
-                                  float sidePush, float fwdPush, float ft) {
+                                  float sidePush, float fwdPush, boolean walljumping, float ft) {
+        // during the walljump launch window Warsow inhibits both air accel and air
+        // control so the launch trajectory is preserved (only gravity acts)
+        if (walljumping) return vel;
+
         float wishspeed2 = wishspeed;
 
         // decelerate when pushing against current velocity, else normal air accel
