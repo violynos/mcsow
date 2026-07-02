@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.5.0, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.5.1, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -52,7 +52,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 8. **Friction** (`applyFriction`): horizontal only, Warsow formula with control = max(spd, PM_DECELERATE)
 9. Wish direction from forward/right vectors × WASD input
 10. **Ground move** (one step) or **Air move** (sub-stepped `AIR_SUBSTEPS`×/tick): exact port of Warsow's "Air Control" branch — `PM_Accelerate` (+strafe bunny accel) then `PM_Aircontrol` redirect, plus gravity per sub-step. Air accel/control inhibited during the walljump launch (`s.walljumping`). Displacement accumulated across sub-steps.
-11. Convert accumulated displacement → MC blocks via `UNIT_SCALE`; `player.move()` sweeps collisions. **Collision reconciliation**: compare intended vs actual per-axis movement; a blocked axis (moved less than intended) has its internal velocity zeroed — fixes float-under-block (ceiling kills upward vel → fall), lands cleanly, and clamps into-wall velocity while still allowing motion away from the wall. **Wall-momentum buffer (v1.4.1)**: a horizontal (wall) clamp saves the lost speed and, for `WALL_BUFFER_FRAMES=4` ticks, restores it if that direction opens up (corner-skip). Vertical (floor/ceiling) is not buffered.
+11. Convert accumulated displacement → MC blocks via `UNIT_SCALE`; `player.move()` sweeps collisions. **Collision reconciliation**: compare intended vs actual per-axis movement; a blocked axis (moved less than intended) has its internal velocity zeroed — fixes float-under-block (ceiling kills upward vel → fall), lands cleanly, and clamps into-wall velocity while still allowing motion away from the wall. **Wall-momentum buffer (v1.4.1)**: a horizontal (wall) clamp saves the lost speed and, for `WALL_BUFFER_FRAMES=4` ticks, restores it if that direction opens up (corner-skip). Vertical (floor/ceiling) is not buffered. **Step-up (v1.5.1)**: on a horizontal collision while grounded, `tryStepUp` probes whether the obstacle is a low ledge (clear at some height ≤ `STEP_UP_HEIGHT=0.6`, e.g. a slab); if so the player is snapped up (`setPosition` +step) and horizontal speed is kept instead of clamped, for smooth slab stepping.
 
 ## Key Constants (current raw Warsow values — ×1.4 via GRAVITY)
 

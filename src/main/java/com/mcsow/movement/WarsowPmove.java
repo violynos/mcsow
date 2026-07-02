@@ -102,6 +102,10 @@ public final class WarsowPmove {
     // clamped direction opens up (corner-skip)
     private static final int    WALL_BUFFER_FRAMES   = 4;
 
+    // max ledge height (MC blocks) we auto-step up onto (0.6 = MC's step height, so full
+    // slabs work — "like to a slab")
+    private static final double STEP_UP_HEIGHT       = 0.6;
+
     private static final java.util.Map<Integer, PlayerMoveState> STATES = new java.util.HashMap<>();
 
     private static class PlayerMoveState {
@@ -280,6 +284,18 @@ public final class WarsowPmove {
 
         // ceiling/floor: just kill vertical velocity (no momentum buffer)
         if (blockedY) vy = 0;
+
+        // Step-up: if we hit a low ledge (≤ STEP_UP_HEIGHT, e.g. a slab) while grounded,
+        // snap the player up onto it and KEEP horizontal speed instead of clamping — so
+        // stepping onto slabs/edges is smooth rather than a dead stop.
+        if ((blockedX || blockedZ) && player.isOnGround()) {
+            double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0);
+            if (step > 0) {
+                player.setPosition(player.getX(), player.getY() + step, player.getZ());
+                blockedX = false;
+                blockedZ = false;
+            }
+        }
 
         // Wall-momentum buffer (corner-skip): when a horizontal axis is clamped by a
         // wall, remember the speed we lost; then for the next WALL_BUFFER_FRAMES ticks,
@@ -570,6 +586,23 @@ public final class WarsowPmove {
 
     private static boolean isFree(PlayerEntity player, Box box) {
         return player.getEntityWorld().isSpaceEmpty(player, box);
+    }
+
+    // If a horizontal collision is a low ledge we can step onto, return the height (MC
+    // blocks) to rise; otherwise 0. Probes into the blocked direction: the obstacle must
+    // be present at foot height but clear at some height ≤ STEP_UP_HEIGHT (so a full-height
+    // wall returns 0, but a slab returns ~0.5).
+    private static double tryStepUp(PlayerEntity player, double dirX, double dirZ) {
+        if (dirX == 0 && dirZ == 0) return 0;
+        Box box = player.getBoundingBox();
+        double hx = dirX != 0 ? Math.copySign(0.3, dirX) : 0;
+        double hz = dirZ != 0 ? Math.copySign(0.3, dirZ) : 0;
+        // must actually be blocked in that direction at current height
+        if (isFree(player, box.offset(hx, 0, hz))) return 0;
+        for (double h = 0.05; h <= STEP_UP_HEIGHT + 1.0e-6; h += 0.05) {
+            if (isFree(player, box.offset(hx, h, hz))) return h;
+        }
+        return 0;
     }
 
     // Warsow GS_ClipVelocity: remove the component of vel along normal.
