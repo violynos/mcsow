@@ -58,7 +58,7 @@ public final class WarsowPmove {
     public static final int    PM_CROUCHSLIDE_CONTROL       = 3;
     public static final int    CROUCHTIME                   = 100;
 
-    private static final float PM_DASHUPSPEED       = 174.0f * 1.05f * GRAVITY_COMPENSATE; // dash height tuned ×1.05
+    private static final float PM_DASHUPSPEED       = 174.0f * 1.1f * GRAVITY_COMPENSATE; // dash height tuned ×1.1
     private static final float PM_OVERBOUNCE         = 1.01f;
     private static final float STEPSIZE              = 18.0f;
     private static final float SPEEDKEY              = 500.0f;

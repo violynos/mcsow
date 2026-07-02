@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.1.3, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.1.4, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -55,7 +55,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 | GRAVITY | 1120.0 | — | 800 × 1.4; GRAVITY_SCALE = 1.0 |
 | GRAVITY_COMPENSATE | — | GRAVITY/800 = 1.4 | Auto-scales all velocity constants |
 | DEFAULT_JUMPSPEED | 280.0 | 392.0 | Jump vertical velocity |
-| PM_DASHUPSPEED | 174.0 × 1.05 = 182.7 | 255.78 | Dash vertical velocity (tuned ×1.05) |
+| PM_DASHUPSPEED | 174.0 × 1.1 = 191.4 | 267.96 | Dash vertical velocity (tuned ×1.1) |
 | PM_FRICTION | 8.0 | — | Warsow default |
 | PM_ACCELERATE | 12.0 | — | Ground acceleration |
 | PM_DECELERATE | 12.0 | — | Friction control threshold |
