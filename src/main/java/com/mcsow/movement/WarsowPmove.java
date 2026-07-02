@@ -95,11 +95,11 @@ public final class WarsowPmove {
     private static float PM_WJUPSPEED                = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost ×1.09 (config-tunable)
     private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
-    // proximity (MC blocks) used by the wall-momentum buffer to test if a wall cleared
+    // proximity (MC blocks) to a wall for walljump detection / wall-momentum buffer
     private static final double WJ_WALL_PROBE        = 0.12;
-    // extra reach (MC blocks) beyond the next-frame move distance for walljump wall
-    // detection, so a wall we're just about to contact still counts
-    private static final double WJ_REACH_SKIN        = 0.05;
+    // min away-from-wall speed (Warsow units) above which we skip the walljump (leaving the
+    // wall, not hugging it); at/below this — including standing still — the walljump fires
+    private static final double WJ_AWAY_EPS          = 1.0;
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
     // clamped direction opens up (corner-skip) or a crouch-jump happens
@@ -565,10 +565,13 @@ public final class WarsowPmove {
         if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0)
             return vel;
 
-        // only a wall we'll actually hit next frame (velocity-based, so moving away from
-        // a nearby wall naturally returns null and won't false-walljump)
-        Vec3d normal = findWallNormal(player, vel);
+        Vec3d normal = findWallNormal(player);
         if (normal == null) return vel;
+
+        // Skip only if we're moving AWAY from the wall (normal points away, so
+        // vel·normal > 0 means leaving it). Standing still (vel·normal ≈ 0) still
+        // walljumps; this just avoids false-walljumping off walls we're dashing away from.
+        if (vel.x * normal.x + vel.z * normal.z > WJ_AWAY_EPS) return vel;
 
         // launch away from the wall (exact Warsow non-stun path). The direction comes
         // from your current horizontal velocity (which the dash/movement set toward your
@@ -602,24 +605,18 @@ public final class WarsowPmove {
         return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
     }
 
-    // Find the wall we're about to hit NEXT FRAME, based on current horizontal velocity.
-    // Only probes in the direction of travel, by the distance we'll move next frame
-    // (+ a small skin so a wall we're about to contact still counts). So we don't
-    // walljump off nearby walls we aren't actually going to hit (e.g. slabs we're
-    // dashing away from). MC blocks are axis-aligned, so the normal is ±x / ±z.
-    private static Vec3d findWallNormal(PlayerEntity player, Vec3d vel) {
+    // Find the away-from-wall normal by probing the four cardinal directions for a
+    // full-height wall (wallAt) within WJ_WALL_PROBE. Proximity-based, so it works even
+    // when standing still against a wall (zero velocity). The caller's away-check drops
+    // walls we're moving away from. MC blocks are axis-aligned, so the normal is ±x / ±z.
+    private static Vec3d findWallNormal(PlayerEntity player) {
         Box box = player.getBoundingBox();
-        double stepX = vel.x * FT * UNIT_SCALE; // next-frame horizontal move (MC blocks)
-        double stepZ = vel.z * FT * UNIT_SCALE;
+        double p = WJ_WALL_PROBE;
         double nx = 0, nz = 0;
-        if (Math.abs(stepX) > 1.0e-5) {
-            double reach = Math.copySign(Math.abs(stepX) + WJ_REACH_SKIN, stepX);
-            if (wallAt(player, box, reach, 0)) nx = -Math.signum(stepX);
-        }
-        if (Math.abs(stepZ) > 1.0e-5) {
-            double reach = Math.copySign(Math.abs(stepZ) + WJ_REACH_SKIN, stepZ);
-            if (wallAt(player, box, 0, reach)) nz = -Math.signum(stepZ);
-        }
+        if (wallAt(player, box, p, 0))  nx -= 1; // wall on +x → normal points -x
+        if (wallAt(player, box, -p, 0)) nx += 1;
+        if (wallAt(player, box, 0, p))  nz -= 1;
+        if (wallAt(player, box, 0, -p)) nz += 1;
         if (nx == 0 && nz == 0) return null;
         return new Vec3d(nx, 0, nz).normalize();
     }
