@@ -100,11 +100,8 @@ public final class WarsowPmove {
     private static float PM_WJUPSPEED                = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost ×1.09 (config-tunable)
     private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
-    // proximity (MC blocks) to a wall for walljump detection / wall-momentum buffer
+    // proximity (MC blocks) used by the wall-momentum buffer to test if a wall cleared
     private static final double WJ_WALL_PROBE        = 0.12;
-    // min away-from-wall speed (Warsow units) above which we skip the walljump (leaving the
-    // wall, not hugging it); at/below this — including standing still — the walljump fires
-    private static final double WJ_AWAY_EPS          = 1.0;
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
     // clamped direction opens up (corner-skip) or a crouch-jump happens
@@ -615,13 +612,13 @@ public final class WarsowPmove {
         if (onGround || !specialDown || s.specialHeld || s.walljumpCount || s.walljumpTime > 0)
             return vel;
 
-        Vec3d normal = findWallNormal(player);
+        // ======== WALL DETECTION: REMOVED — rebuild from here ========
+        // Set `normal` to the away-from-wall unit direction (±x / ±z) if there's a wall to
+        // launch off, otherwise leave it null (no walljump). Everything below (the launch)
+        // is untouched and just consumes `normal`.
+        Vec3d normal = null;
         if (normal == null) return vel;
-
-        // Skip only if we're moving AWAY from the wall (normal points away, so
-        // vel·normal > 0 means leaving it). Standing still (vel·normal ≈ 0) still
-        // walljumps; this just avoids false-walljumping off walls we're dashing away from.
-        if (vel.x * normal.x + vel.z * normal.z > WJ_AWAY_EPS) return vel;
+        // =============================================================
 
         // launch away from the wall (exact Warsow non-stun path). The direction comes
         // from your current horizontal velocity (which the dash/movement set toward your
@@ -655,45 +652,8 @@ public final class WarsowPmove {
         return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
     }
 
-    // Find the away-from-wall normal by probing the four cardinal directions for a
-    // full-height wall (wallAt) within WJ_WALL_PROBE. Proximity-based, so it works even
-    // when standing still against a wall (zero velocity). The caller's away-check drops
-    // walls we're moving away from. MC blocks are axis-aligned, so the normal is ±x / ±z.
-    private static Vec3d findWallNormal(PlayerEntity player) {
-        Box box = player.getBoundingBox();
-        double p = WJ_WALL_PROBE;
-        double nx = 0, nz = 0;
-        if (wallAt(player, box, p, 0))  nx -= 1; // wall on +x → normal points -x
-        if (wallAt(player, box, -p, 0)) nx += 1;
-        if (wallAt(player, box, 0, p))  nz -= 1;
-        if (wallAt(player, box, 0, -p)) nz += 1;
-        if (nx == 0 && nz == 0) return null;
-        return new Vec3d(nx, 0, nz).normalize();
-    }
-
     private static boolean isFree(PlayerEntity player, Box box) {
         return player.getEntityWorld().isSpaceEmpty(player, box);
-    }
-
-    // A real walljump wall must block the player across their whole ~1.8-block height when
-    // moved by (dx,dz). Sample thin slices at feet, knee, waist, chest and top-of-head; a
-    // wall must be present at EVERY sample, so a slab (feet only), a fence/1-block wall
-    // (nothing at chest/head), or an overhang (head only) is not mistaken for a wall.
-    private static boolean wallAt(PlayerEntity player, Box box, double dx, double dz) {
-        // Require SOME surface — full block, slab, fence, anything with a collision shape —
-        // in EVERY ~0.5-block band across the player's height (feet→knee→waist→chest→head).
-        // Using a band (range) instead of a thin slice means a slab counts even where its
-        // empty half would fall between exact sample heights.
-        double top = box.maxY;
-        double[] bounds = { box.minY, box.minY + 0.5, box.minY + 1.0, box.minY + 1.5, top };
-        for (int i = 0; i + 1 < bounds.length; i++) {
-            double lo = Math.min(bounds[i], top);
-            double hi = Math.min(bounds[i + 1], top);
-            if (hi - lo < 0.05) continue; // degenerate band (e.g. while crouched) — skip
-            Box band = new Box(box.minX, lo, box.minZ, box.maxX, hi, box.maxZ).offset(dx, 0, dz);
-            if (isFree(player, band)) return false; // a gap in this band → not a full-height wall
-        }
-        return true;
     }
 
     // True if there's a solid surface within STEP_GROUND_DROP (1 block) below the feet
