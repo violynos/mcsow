@@ -167,6 +167,16 @@ public final class WarsowPmove {
         return s == null ? 0 : s.hudAccel;
     }
 
+    // Optimal air-strafe angle (degrees) between your view and velocity for the current
+    // speed — where +strafe air acceleration is maximised. For strafe air physics the max
+    // speed gain is at asin(wishspeed / (2·speed)). NaN when too slow to define.
+    public static double getHudOptimalAngle(PlayerEntity p) {
+        double speed = getHudSpeed(p);
+        double x = PM_WISHSPEED / (2.0 * Math.max(speed, 1.0));
+        if (x >= 1.0) return Double.NaN;
+        return Math.toDegrees(Math.asin(x));
+    }
+
     // Velocity direction as an MC yaw (degrees); NaN if essentially not moving.
     public static double getHudVelYaw(PlayerEntity p) {
         PlayerMoveState s = STATES.get(p.getId());

@@ -27,8 +27,9 @@ public final class StrafeHud {
     private static final int BG      = 0x90000000;
     private static final int TICK    = 0xFFFFFFFF;
 
+    private static final int    OPTIMAL = 0xFFFFD21E; // amber — optimal-angle markers
     private static final double ACCEL_EPS = 0.5;   // Warsow units/tick to count as gain/loss
-    private static final double RANGE_DEG = 90.0;  // angle mapped to half the bar width
+    private static final double RANGE_DEG = 30.0;  // angle mapped to half the bar width
     private static final int    BAR_W = 180;
     private static final int    BAR_H = 6;
 
@@ -47,6 +48,7 @@ public final class StrafeHud {
         double speed = WarsowPmove.getHudSpeed(p);
         double accel = WarsowPmove.getHudAccel(p);
         double velYaw = WarsowPmove.getHudVelYaw(p);
+        double optimal = WarsowPmove.getHudOptimalAngle(p);
         float viewYaw = p.getYaw();
 
         int accelColor = accel > ACCEL_EPS ? GAIN : (accel < -ACCEL_EPS ? LOSE : NEUTRAL);
@@ -54,39 +56,42 @@ public final class StrafeHud {
         int w = ctx.getScaledWindowWidth();
         int h = ctx.getScaledWindowHeight();
         int cx = w / 2;
+        int barX = cx - BAR_W / 2;
+        int barY = h / 2 + 26;
+        double halfW = BAR_W / 2.0;
         TextRenderer tr = mc.textRenderer;
 
         // ---- speed number, centred just below the crosshair ----
         String speedStr = Integer.toString((int) Math.round(speed));
         ctx.drawTextWithShadow(tr, speedStr, cx - tr.getWidth(speedStr) / 2, h / 2 + 12, accelColor);
 
-        // ---- angle bar (velocity direction relative to view) ----
-        int barX = cx - BAR_W / 2;
-        int barY = h / 2 + 26;
+        // ---- angle bar; centre = looking straight along your velocity ----
         ctx.fill(barX - 1, barY - 1, barX + BAR_W + 1, barY + BAR_H + 1, BG);
-        ctx.fill(cx - 1, barY - 3, cx + 1, barY + BAR_H + 3, TICK); // centre = looking along velocity
+        ctx.fill(cx - 1, barY - 3, cx + 1, barY + BAR_H + 3, TICK);
 
-        double diff = Double.NaN;
-        if (!Double.isNaN(velYaw)) {
-            diff = MathHelper.wrapDegrees(velYaw - viewYaw); // −180..180; 0 = aligned
-            double clamped = MathHelper.clamp(diff, -RANGE_DEG, RANGE_DEG);
-            int ix = cx + (int) Math.round(clamped / RANGE_DEG * (BAR_W / 2.0));
-            ctx.fill(ix - 2, barY - 1, ix + 2, barY + BAR_H + 1, accelColor);
+        // ---- optimal-angle triangles at ±optimal (aim your velocity marker onto one) ----
+        if (!Double.isNaN(optimal)) {
+            int off = (int) Math.round(Math.min(optimal, RANGE_DEG) / RANGE_DEG * halfW);
+            triangleDown(ctx, cx - off, barY - 2);
+            triangleDown(ctx, cx + off, barY - 2);
         }
 
-        // ---- strafe arrows flanking the crosshair; the one on the side your velocity is
-        //      offset toward lights up (bigger with a wider angle), tinted by accel ----
-        if (!Double.isNaN(diff)) {
-            int size = 3 + (int) Math.round(Math.min(Math.abs(diff), RANGE_DEG) / RANGE_DEG * 7.0);
-            int ay = h / 2;
-            boolean right = diff > 0;
-            int base = right ? cx + 14 : cx - 14 - size;
-            for (int i = 0; i < size; i++) {
-                // simple triangle: taller toward the tip
-                int col = i;
-                int x = right ? base + i : base + (size - 1 - i);
-                ctx.fill(x, ay - col, x + 1, ay + col + 1, accelColor);
-            }
+        // ---- velocity direction marker relative to view, tinted by accel ----
+        if (!Double.isNaN(velYaw)) {
+            double diff = MathHelper.wrapDegrees(velYaw - viewYaw); // −180..180; 0 = aligned
+            double clamped = MathHelper.clamp(diff, -RANGE_DEG, RANGE_DEG);
+            int ix = cx + (int) Math.round(clamped / RANGE_DEG * halfW);
+            ctx.fill(ix - 1, barY - 1, ix + 1, barY + BAR_H + 1, accelColor);
+        }
+    }
+
+    // small downward-pointing triangle whose tip sits at (px, tipY)
+    private static void triangleDown(DrawContext ctx, int px, int tipY) {
+        int size = 4;
+        for (int r = 0; r < size; r++) {
+            int half = size - r;      // widest at top, tip at bottom
+            int y = tipY - size + r;
+            ctx.fill(px - half, y, px + half, y + 1, OPTIMAL);
         }
     }
 }
