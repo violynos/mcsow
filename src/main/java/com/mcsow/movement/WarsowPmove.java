@@ -99,12 +99,11 @@ public final class WarsowPmove {
     private static final double WJ_WALL_PROBE        = 0.12;
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
-    // clamped direction opens up (corner-skip)
-    private static final int    WALL_BUFFER_FRAMES   = 4;
+    // clamped direction opens up (corner-skip) or a crouch-jump happens
+    private static final int    WALL_BUFFER_FRAMES   = 2;
 
-    // max ledge height (MC blocks) we auto-step up onto (0.6 = MC's step height, so full
-    // slabs work — "like to a slab")
-    private static final double STEP_UP_HEIGHT       = 0.6;
+    // max ledge height (MC blocks) we auto-step up onto (0.56 catches slabs + a bit)
+    private static final double STEP_UP_HEIGHT       = 0.56;
     // how far below the feet a surface may be for step-up to apply (so it works mid-air)
     private static final double STEP_GROUND_DROP     = 1.0;
 
@@ -123,6 +122,7 @@ public final class WarsowPmove {
         double wallSaveZ;
         int wallBufferX;         // frames left to restore the clamped X speed
         int wallBufferZ;
+        boolean forceGround;     // step-up just happened → treat next tick as grounded
         int crouchTime;
         int crouchSlideTime;
         boolean crouchSliding;
@@ -159,7 +159,10 @@ public final class WarsowPmove {
         Vec3d vel = s.velocity;
 
         // ---- on-ground (checked first, before anything) ----
-        boolean onGround = player.isOnGround();
+        // a step-up last tick forces us grounded this tick (holding jump overrides it
+        // by jumping off, via checkJump + the airborne recheck below)
+        boolean onGround = player.isOnGround() || s.forceGround;
+        s.forceGround = false;
         boolean justLanded = onGround && s.wasInAir;
 
         // ---- reset vertical speed on ground contact (not just on jump/dash) ----
@@ -295,6 +298,8 @@ public final class WarsowPmove {
             double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0);
             if (step > 0) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
+                player.setOnGround(true);
+                s.forceGround = true;   // start next tick grounded (smooth landing on the ledge)
                 blockedX = false;
                 blockedZ = false;
             }
@@ -423,9 +428,16 @@ public final class WarsowPmove {
             // horizontal speed into vertical and keep 25% as horizontal. At high speed
             // the big vertical component "launches" you upward; the reduced horizontal
             // lets you land precisely on a block (awkward terrain).
-            double hspeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+            // If we clipped a wall within the last WALL_BUFFER_FRAMES ticks, use the
+            // pre-collision (buffered) speed so a crouch-jump right after a wall hit keeps
+            // the momentum we went in with.
+            double useX = (s.wallBufferX > 0) ? s.wallSaveX : vel.x;
+            double useZ = (s.wallBufferZ > 0) ? s.wallSaveZ : vel.z;
+            double hspeed = Math.sqrt(useX * useX + useZ * useZ);
             double keep = 1.0 - CROUCH_JUMP_RATIO;
-            vel = new Vec3d(vel.x * keep, jumpSpeed + CROUCH_JUMP_RATIO * hspeed, vel.z * keep);
+            vel = new Vec3d(useX * keep, jumpSpeed + CROUCH_JUMP_RATIO * hspeed, useZ * keep);
+            s.wallBufferX = 0;
+            s.wallBufferZ = 0;
         } else {
             vel = new Vec3d(vel.x, jumpSpeed, vel.z);
         }
