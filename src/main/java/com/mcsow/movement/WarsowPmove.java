@@ -685,6 +685,10 @@ public final class WarsowPmove {
         s.walljumping = true;
         s.walljumpTime = PM_WALLJUMP_TIMEDELAY; // own cooldown (same length as dash), distinct
         s.wallEligible = false;
+        // clear the wall-momentum buffer, or it would restore the into-wall velocity next
+        // frame and yank us back into the wall we just launched off of
+        s.wallBufferX = 0;
+        s.wallBufferZ = 0;
 
         return new Vec3d(hv.x, Math.max(oldUp, PM_WJUPSPEED), hv.z);
     }
