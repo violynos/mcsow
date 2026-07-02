@@ -300,7 +300,11 @@ public final class WarsowPmove {
         // mid-air (not just grounded), as long as there's ground close below.
         if ((blockedX || blockedZ) && hasGroundBelow(player)) {
             double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, STEP_UP_HEIGHT);
-            if (step > 0) {
+            // Only step up if raising the player straight up by `step` is actually clear
+            // (where setPosition will put us). Without this, a ceiling above the current
+            // spot — e.g. a fence with a block over it — makes MC shove us back down every
+            // tick, fighting the step-up and jittering.
+            if (step > 0 && isFree(player, player.getBoundingBox().offset(0, step, 0))) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
                 s.forceGround = true;   // start next tick grounded (applied at frame end below)
                 blockedX = false;
