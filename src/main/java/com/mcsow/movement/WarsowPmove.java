@@ -23,41 +23,58 @@ public final class WarsowPmove {
 
     public static void setEnabled(boolean e) { enabled = e; }
 
+    // Copy user-tunable movement values from config into the live fields.
+    public static void applyConfig(com.mcsow.config.McSowConfig.Data d) {
+        GRAVITY           = d.gravity;
+        DEFAULT_JUMPSPEED = d.jumpSpeed;
+        DEFAULT_DASHSPEED = d.dashSpeed;
+        PM_DASHUPSPEED    = d.dashUpSpeed;
+        PM_WJUPSPEED      = d.wallJumpUpSpeed;
+        PM_AIRACCELERATE  = d.airAccelerate;
+        PM_AIRCONTROL     = d.airControl;
+        AIR_SUBSTEPS      = Math.max(1, d.airSubsteps);
+        CROUCH_JUMP_RATIO = d.crouchJumpRatio;
+    }
+
     // === Warsow constants (exact values from gs_pmove.cpp) ===
     // All velocities in Warsow units/sec; multiplied by UNIT_SCALE * FT at output.
 
     private static final float FT = 0.05f; // 20 ticks/sec
     private static final float UNIT_SCALE = 0.01875f; // 1 Warsow unit → MC blocks
 
-    private static final float GRAVITY            = 1120.0f;
+    // config-tunable (see McSowConfig / applyConfig); GRAVITY_COMPENSATE is fixed at 1.4
+    private static float GRAVITY                  = 1120.0f;
     private static final float GRAVITY_SCALE      = 1.0f; // no scaling, raw Warsow
-    private static final float GRAVITY_COMPENSATE = GRAVITY / 800.0f; // = 1.0 at 800
+    private static final float GRAVITY_COMPENSATE = 1120.0f / 800.0f; // = 1.4
 
     // speeds
     public static final float DEFAULT_PLAYERSPEED   = 320.0f;
     public static final float DEFAULT_WALKSPEED     = 160.0f;
     public static final float DEFAULT_CROUCHEDSPEED = 100.0f;
-    public static final float DEFAULT_JUMPSPEED     = 280.0f * GRAVITY_COMPENSATE;
-    public static final float DEFAULT_DASHSPEED     = 450.0f; // minimum dash speed
+    public static float DEFAULT_JUMPSPEED           = 280.0f * GRAVITY_COMPENSATE; // config-tunable
+    public static float DEFAULT_DASHSPEED           = 450.0f; // minimum dash speed (config-tunable)
+
+    // crouch-jump: fraction of horizontal speed converted to vertical (rest kept). (config-tunable)
+    private static float CROUCH_JUMP_RATIO          = 0.75f;
 
 
     // friction / acceleration
     private static final float PM_FRICTION         = 8.0f;
     private static final float PM_ACCELERATE       = 12.0f;
-    private static final float PM_AIRACCELERATE    = 1.075f; // Warsow 1.0, tuned ×1.075 for quake-strafe gain
+    private static float PM_AIRACCELERATE          = 1.075f; // Warsow 1.0, tuned ×1.075 (config-tunable)
     private static final float PM_AIRDECELERATE    = 2.0f;
     private static final float PM_DECELERATE       = 12.0f;
     private static final float PM_WATERFRICTION    = 1.0f;
     private static final float PM_WATERACCELERATE  = 10.0f;
 
     // air control (Warsow gs_pmove.c "Air Control" mode: PMFEAT_AIRCONTROL, no FWDBUNNY)
-    private static final float PM_AIRCONTROL         = 150.0f; // inertia→forward conversion
+    private static float PM_AIRCONTROL               = 150.0f; // inertia→forward conversion (config-tunable)
     private static final float PM_STRAFE_BUNNY_ACCEL = 70.0f;  // accel when +strafe (side only)
     private static final float PM_WISHSPEED          = 30.0f;  // clamp for +strafe wishspeed
 
     // Sub-steps per 20 Hz MC tick for the air integration, to approximate
     // Warsow's higher physics tick rate (air-strafe/air-control resolve finer).
-    private static final int   AIR_SUBSTEPS          = 3;
+    private static int         AIR_SUBSTEPS          = 3; // config-tunable
 
     // dash
     public static final int    PM_DASHJUMP_TIMEDELAY        = 1000;
@@ -68,14 +85,14 @@ public final class WarsowPmove {
     public static final int    PM_CROUCHSLIDE_CONTROL       = 3;
     public static final int    CROUCHTIME                   = 100;
 
-    private static final float PM_DASHUPSPEED       = 174.0f * 1.15f * GRAVITY_COMPENSATE; // dash height tuned ×1.15
+    private static float PM_DASHUPSPEED             = 174.0f * 1.15f * GRAVITY_COMPENSATE; // dash height ×1.15 (config-tunable)
     private static final float PM_OVERBOUNCE         = 1.01f;
     private static final float STEPSIZE              = 18.0f;
     private static final float SPEEDKEY              = 500.0f;
 
     // walljump (Warsow gs_pmove.c PM_CheckWallJump, non-OLDWALLJUMP path)
     public static final int    PM_WALLJUMP_TIMEDELAY = 1300; // cooldown between walljumps (ms)
-    private static final float PM_WJUPSPEED          = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost (tuned ×1.09)
+    private static float PM_WJUPSPEED                = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost ×1.09 (config-tunable)
     private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
     // how close (MC blocks) the player must be to a wall to walljump off it
@@ -388,7 +405,8 @@ public final class WarsowPmove {
             // the big vertical component "launches" you upward; the reduced horizontal
             // lets you land precisely on a block (awkward terrain).
             double hspeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-            vel = new Vec3d(vel.x * 0.25, jumpSpeed + 0.75 * hspeed, vel.z * 0.25);
+            double keep = 1.0 - CROUCH_JUMP_RATIO;
+            vel = new Vec3d(vel.x * keep, jumpSpeed + CROUCH_JUMP_RATIO * hspeed, vel.z * keep);
         } else {
             vel = new Vec3d(vel.x, jumpSpeed, vel.z);
         }

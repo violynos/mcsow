@@ -7,12 +7,14 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.4.1, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.5.0, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
 │   ├── McSowClientMod.java   — client init, registers R key, reads press state
-│   ├── config/McSowConfig.java — reads/writes config/mcsow.json (enabled toggle)
+│   ├── config/McSowConfig.java — Gson Data holder (enabled + movement tunables), load/save/apply
+│   ├── config/McSowConfigScreen.java — Cloth Config screen with per-value hover tooltips
+│   ├── config/ModMenuIntegration.java — Mod Menu entrypoint → config screen
 │   ├── mixin/
 │   │   ├── PlayerEntityMixin.java — cancels travel(), calls move() for ClientPlayerEntity only; server just cancels
 │   │   └── ClientPlayerMixin.java — feeds R-key state into SpecialState
@@ -34,6 +36,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 - **`mcDelta(wsVal)`**: `wsVal * FT * UNIT_SCALE` converts Warsow velocity → MC blocks position delta per tick.
 - **Config**: `config/mcsow.json` with `{"enabled": false}` to disable mod movement.
 - **Velocity sync (v1.3.2)**: while vanilla controls motion (creative fly, elytra glide, spectator, vehicle, or disabled), the mixin calls `WarsowPmove.syncFromActual()` each tick to keep the internal Warsow-unit velocity aligned with the player's real MC velocity — so momentum carries over when Warsow movement resumes (fixes losing all speed the frame you stop flying / land with elytra).
+- **Config screen (v1.5.0)**: Mod Menu (`17.0.0`) + Cloth Config (`21.11.153`), added as optional (`recommends`) deps. `McSowConfig.Data` is a Gson holder whose field defaults are the current tuning; `McSowConfig.apply()` pushes values into `WarsowPmove.applyConfig()`. The exposed movement constants (`GRAVITY`, `DEFAULT_JUMPSPEED`, `DEFAULT_DASHSPEED`, `PM_DASHUPSPEED`, `PM_WJUPSPEED`, `PM_AIRACCELERATE`, `PM_AIRCONTROL`, `AIR_SUBSTEPS`, `CROUCH_JUMP_RATIO`) were changed from `static final` to mutable `static` fields. `GRAVITY_COMPENSATE` is now a fixed 1.4 literal (no longer derived from GRAVITY, so tuning gravity doesn't desync jump/dash defaults). Each screen entry has hover text explaining the value.
 - **MC modifier scaling (v1.4.0)**: `move()` takes raw input (−1..1) and scales by `playerMaxSpeed(player)` = `DEFAULT_PLAYERSPEED × (movementSpeedAttr / baseAttr)`, so the **movement-speed attribute** carries Speed potion, Soul Speed, sprint, and item/attribute modifiers automatically. **Jump Boost**: `jumpBoostBonus()` adds `0.1·(amp+1)` blocks/tick (→ Warsow units) to jump velocity. **Sneaking** (on ground): speed × `sneakFactor` = `0.3 + 0.15·swiftSneakLevel` (Swift Sneak max 3 → 0.75), per the MC wiki. API verified against `yarn-1.21.11+build.6` mappings: `EntityAttributes.MOVEMENT_SPEED`, `StatusEffects.JUMP_BOOST`, `Enchantments.SWIFT_SNEAK` via dynamic registry.
 
 ## Current Physics Flow (each tick)

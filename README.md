@@ -1,61 +1,58 @@
 # McSow
 
-Port Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into a Fabric Minecraft mod.
+**McSow is a Minecraft mod that implements [Warsow](https://en.wikipedia.org/wiki/Warsow_(video_game))/Warfork movement in Minecraft as faithfully and cleanly as possible.**
 
-## Goal
+It replaces vanilla player motion entirely — cancelling `travel()` in a mixin and running a direct port of Warsow's `gs_pmove.c` physics — so you get real air-strafing, bunnyhopping, dashing, and walljumping in Minecraft.
 
-Implement Quake/Warsow-style physics in Minecraft: air acceleration, bunnyhopping, walljumping, and dash mechanics.
+## A note on the values
 
-## Constraints
+The physics *formulas* are a faithful port of Warsow's, but some *constants* were deliberately retuned to fit Minecraft's scale and block grid rather than copied 1:1:
 
-- Fabric mod loader
-- Dash bound to R key (Warsow right-click equivalent)
-- Target Minecraft 1.21.11
-- Loom 1.14.10, Gradle 9.6.1, JDK 21 (runtime), Java 17 (mod target)
+- **Dash is a touch stronger than in Warfork**, tuned so a dash clears roughly half a block — enough to feel right against Minecraft's terrain.
+- **Crouch-jumping was added** (not a Warsow mechanic) to trade horizontal speed for height, so you can pop precisely onto blocks and handle awkward terrain.
+- **Gravity/jump baseline is intentionally non-Warsow** (scaled for Minecraft feel), and air-strafe gain is sub-stepped to make up for Minecraft's 20 tps.
+- Movement respects Minecraft **modifiers** — Speed, Soul Speed, Jump Boost, Swift Sneak, sprint, and the movement-speed attribute all scale the physics.
 
-## Progress
+Most of these are tunable in-game (see Configuration).
 
-### Done
-- Project scaffolded: `build.gradle`, `gradle.properties`, `settings.gradle`, `fabric.mod.json`, `mcsow.mixins.json`
-- Gradle wrapper generated with Gradle 9.6.1
-- JDK 21 installed
-- Core `gs_pmove.c` ported to `WarsowPmove.java` (friction, accel, air accelerate, air control, jump, dash, walljump, crouch, water)
-- `PlayerEntityMixin` cancels `travel()` and routes to Warsow physics
-- `ClientPlayerMixin` reads R key press and pushes state via `SpecialState` map
-- `McSowClientMod` registers `key.mcsow.special` (default R)
-- `.gitignore`, `setup.sh`, `install-jdk.sh`
+## Dependencies
 
-### In Progress
-- Fixing Yarn 1.21.11 mapping names so Java compilation succeeds
+- **Fabric Loader** ≥ 0.16.0
+- **Fabric API**
+- **Minecraft** 1.21.11
+- **Mod Menu** *(optional)* — for the in-game configuration screen
 
-### Blocked
-- Compilation errors: incorrect Yarn method/field names for 1.21.11 (`player.input`, `player.getWorld()`, `box.getXLength()`, `player.isFallFlying()`, `KeyBinding` constructor category type)
+## Controls
 
-## Key Decisions
+- **Movement / jump / sneak** — your normal Minecraft keys
+- **Dash / Special** — `R` by default (rebindable in Controls). Used for dashing on the ground and walljumping in the air.
 
-- Dash/walljump uses a static `Map<entityId, boolean>` (`SpecialState`) instead of cross-mixin `@Unique` field access
-- Player movement replaced by cancelling `travel()` entirely in a `@Inject(cancellable)` mixin, not item-by-item edits
-- `Vec3d` treated as immutable (all helpers return new `Vec3d`)
+## Movement tech
 
-## Next Steps
+- **Quake strafing** — hold forward + a strafe key and turn the mouse so your aim is ~80° off your velocity to gain speed.
+- **Source strafing** — hold a single strafe key and turn the mouse that way to accelerate.
+- **Air control** — hold forward and turn the mouse to curve your trajectory without losing speed (sharp turns bleed a little).
+- **Bunnyhopping** — chain jumps to preserve and build momentum; ground friction only bites when you're actually on the ground.
+- **Dash** — tap Special on the ground to dash; direction follows your movement keys, or the camera if none are held.
+- **Dash turning** — release every movement key mid-air and land with Special held: your velocity vector rotates to point where the camera is looking (redirect your momentum in a new direction).
+- **Walljump** — in the air, hug a wall and press Special to launch away from it (also counts as a dash).
+- **Crouch-jump** — jump while sneaking to convert most of your horizontal speed into height (great for awkward terrain; at high speed it launches you upward).
+- **Momentum preservation** — your real velocity is tracked through creative flight and elytra, so you don't lose all your speed the moment you stop flying or land a glide.
 
-1. Resolve Yarn mapping errors — see `AGENTS.md` for 1.21.11 API differences
-2. Get `./gradlew build` green
-3. Test in-game with PrismLauncher (1.21.11 instance)
-4. Add server-side special-key networking so dash/walljump work on dedicated servers
+## Configuration
 
-## Critical Context
+- `config/mcsow.json` — `{"enabled": true}` toggles the mod's movement on/off.
+- With **Mod Menu** installed, open the config screen from the mods list to tune the movement constants (air acceleration, dash height, walljump height, crouch-jump ratio, gravity, sub-steps, …). Each value has hover text explaining what it does and how it affects movement.
 
-- Yarn branch `1.21.11`; merged jar at Fabric Loom's minecraftMaven cache
-- Walljump wall detection uses simple AABB-offset probes instead of proper hull traces
-- Current friction skips water checks and `SURF_SLICK` detection from the original C code
+## Building
 
-## Relevant Files
+```bash
+./gradlew build          # jar → build/libs/
+./buildvio.sh            # build + copy the jar into the PrismLauncher "Mod Testing" instance
+```
 
-- `src/main/java/com/mcsow/movement/WarsowPmove.java` — core physics engine (full gs_pmove.c port)
-- `src/main/java/com/mcsow/mixin/PlayerEntityMixin.java` — cancels `travel()`, calls `WarsowPmove.move()`
-- `src/main/java/com/mcsow/mixin/ClientPlayerMixin.java` — feeds R-key state into `SpecialState`
-- `src/main/java/com/mcsow/movement/SpecialState.java` — entityId→boolean map for special-button state
-- `build.gradle` — Loom 1.14.10, Java release 17, Yarn 1.21.11+build.6
-- `gradle.properties` — mod version 0.1.0, Fabric API 0.136.0+1.21.11, loader 0.16.10
-- `setup.sh` — installs JDK 21 + runs `./gradlew build`
+- **Toolchain:** Loom 1.14.10, Gradle 9.6.1, JDK 21 runtime, Java 17 mod target, yarn `1.21.11+build.6`.
+
+## License
+
+GPL-2.0

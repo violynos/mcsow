@@ -17,6 +17,9 @@
         ],
         "main": [
             "com.mcsow.McSowMod"
+        ],
+        "modmenu": [
+            "com.mcsow.config.ModMenuIntegration"
         ]
     },
     "mixins": [
@@ -26,5 +29,9 @@
         "fabricloader": ">=0.16.0",
         "minecraft": ">=1.21.11",
         "fabric-api": "*"
+    },
+    "recommends": {
+        "modmenu": "*",
+        "cloth-config": "*"
     }
 }
