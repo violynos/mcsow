@@ -55,7 +55,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 | GRAVITY | 1120.0 | — | 800 × 1.4; GRAVITY_SCALE = 1.0 |
 | GRAVITY_COMPENSATE | — | GRAVITY/800 = 1.4 | Auto-scales all velocity constants |
 | DEFAULT_JUMPSPEED | 280.0 | 392.0 | Jump vertical velocity |
-| PM_DASHUPSPEED | 174.0 | 243.6 | Dash vertical velocity |
+| PM_DASHUPSPEED | 174.0 × 1.05 = 182.7 | 255.78 | Dash vertical velocity (tuned ×1.05) |
 | PM_FRICTION | 8.0 | — | Warsow default |
 | PM_ACCELERATE | 12.0 | — | Ground acceleration |
 | PM_DECELERATE | 12.0 | — | Friction control threshold |
