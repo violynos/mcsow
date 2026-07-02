@@ -1,11 +1,8 @@
 package com.mcsow.mixin;
 
 import com.mcsow.config.McSowConfig;
-import com.mcsow.movement.SpecialState;
 import com.mcsow.movement.WarsowPmove;
-import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec2f;
 import net.minecraft.util.math.Vec3d;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -27,34 +24,16 @@ public abstract class PlayerEntityMixin {
     private void mcsow$onTravel(Vec3d movementInput, CallbackInfo ci) {
         PlayerEntity self = (PlayerEntity)(Object)this;
 
-        // Situations where Warsow movement should NOT run and vanilla handles motion
-        // (creative fly, elytra glide, spectator, riding a vehicle, or mod disabled).
+        // Client physics runs in ClientPlayerEntityTravelMixin — let it handle it.
+        if (self.getEntityWorld().isClient()) return;
+
+        // Server: only cancel travel so the client's physics is authoritative.
+        // If vanilla should control, do nothing.
         boolean vanillaControls = !WarsowPmove.isEnabled()
             || self.isSpectator()
             || self.getAbilities().flying
             || self.hasVehicle()
             || self.isGliding();
-
-        if (self instanceof ClientPlayerEntity cpe) {
-            if (vanillaControls) {
-                // Keep our internal velocity in sync with the player's real velocity so
-                // momentum carries over seamlessly when we resume control (otherwise
-                // landing/stopping an elytra or fly for a frame zeroes your speed).
-                WarsowPmove.syncFromActual(self);
-                return;
-            }
-            boolean special = SpecialState.isDown(self.getId());
-            boolean crouchPressed = self.isSneaking();
-            Vec2f mv = cpe.input.getMovementInput();
-            // pass raw input (-1..1); move() scales by the player's dynamic max speed
-            boolean jumpPressed = self.isJumping();
-            WarsowPmove.move(self, special, jumpPressed, crouchPressed, mv.y, mv.x);
-            ci.cancel();
-            return;
-        }
-
-        // Non-client players (e.g. the integrated server's copy): keep cancelling
-        // travel so only the client runs physics — unless vanilla should control.
         if (vanillaControls) return;
         ci.cancel();
     }
