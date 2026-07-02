@@ -633,14 +633,18 @@ public final class WarsowPmove {
     // wall must be present at EVERY sample, so a slab (feet only), a fence/1-block wall
     // (nothing at chest/head), or an overhang (head only) is not mistaken for a wall.
     private static boolean wallAt(PlayerEntity player, Box box, double dx, double dz) {
-        double e = 0.02;
-        double[] heights = {                 // feet, knee, waist, chest, top of head
-            box.minY, box.minY + 0.5, box.minY + 1.0, box.minY + 1.5, box.maxY
-        };
-        for (double y : heights) {
-            double lo = Math.min(y, box.maxY - e);   // keep the top slice inside the head
-            Box slice = new Box(box.minX, lo, box.minZ, box.maxX, lo + e, box.maxZ).offset(dx, 0, dz);
-            if (isFree(player, slice)) return false; // a gap at this height → not a full wall
+        // Require SOME surface — full block, slab, fence, anything with a collision shape —
+        // in EVERY ~0.5-block band across the player's height (feet→knee→waist→chest→head).
+        // Using a band (range) instead of a thin slice means a slab counts even where its
+        // empty half would fall between exact sample heights.
+        double top = box.maxY;
+        double[] bounds = { box.minY, box.minY + 0.5, box.minY + 1.0, box.minY + 1.5, top };
+        for (int i = 0; i + 1 < bounds.length; i++) {
+            double lo = Math.min(bounds[i], top);
+            double hi = Math.min(bounds[i + 1], top);
+            if (hi - lo < 0.05) continue; // degenerate band (e.g. while crouched) — skip
+            Box band = new Box(box.minX, lo, box.minZ, box.maxX, hi, box.maxZ).offset(dx, 0, dz);
+            if (isFree(player, band)) return false; // a gap in this band → not a full-height wall
         }
         return true;
     }
