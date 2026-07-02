@@ -32,7 +32,7 @@ public final class WarsowPmove {
     // friction / acceleration
     private static final float PM_FRICTION         = 8.0f;
     private static final float PM_ACCELERATE       = 12.0f;
-    private static final float PM_AIRACCELERATE    = 1.1f; // Warsow 1.0, tuned ×1.1 for stronger quake-strafe gain
+    private static final float PM_AIRACCELERATE    = 1.075f; // Warsow 1.0, tuned ×1.075 for quake-strafe gain
     private static final float PM_AIRDECELERATE    = 2.0f;
     private static final float PM_DECELERATE       = 12.0f;
     private static final float PM_WATERFRICTION    = 1.0f;
@@ -100,7 +100,7 @@ public final class WarsowPmove {
         // ---- JUMP FIRST (must run before timers, dash, directions) ----
         s.jumped = false;
         if (justLanded && jumpPressed) s.jumpHeld = false;
-        vel = checkJump(vel, s, onGround, jumpPressed);
+        vel = checkJump(vel, s, onGround, jumpPressed, crouchPressed);
 
         // ---- direction vectors from yaw (needed for dash) ----
         float yawRad = player.getYaw() * MathHelper.RADIANS_PER_DEGREE;
@@ -264,7 +264,8 @@ public final class WarsowPmove {
     // ================================================================
     //  JUMP (Warsow PM_CheckJump)
     // ================================================================
-    private static Vec3d checkJump(Vec3d vel, PlayerMoveState s, boolean onGround, boolean jumpPressed) {
+    private static Vec3d checkJump(Vec3d vel, PlayerMoveState s, boolean onGround,
+                                    boolean jumpPressed, boolean crouchPressed) {
         if (!jumpPressed) {
             s.jumpHeld = false;
             return vel;
@@ -275,7 +276,16 @@ public final class WarsowPmove {
         s.jumpHeld = true;
         s.jumped = true;
 
-        vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED, vel.z);
+        if (crouchPressed) {
+            // crouch-jump: trade horizontal momentum for height. Convert 75% of
+            // horizontal speed into vertical and keep 25% as horizontal, so you can
+            // pop straight up onto a block instead of always launching a full block
+            // forward.
+            double hspeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+            vel = new Vec3d(vel.x * 0.25, DEFAULT_JUMPSPEED + 0.75 * hspeed, vel.z * 0.25);
+        } else {
+            vel = new Vec3d(vel.x, DEFAULT_JUMPSPEED, vel.z);
+        }
 
         s.dashTime = 0;
         s.dashing = false;

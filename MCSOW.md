@@ -7,7 +7,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ```
 /home/vio/git/mcsow/
 ├── build.gradle              — Loom 1.14.10, Java 17 target
-├── gradle.properties         — mod_version=1.2.2, yarn 1.21.11+build.6
+├── gradle.properties         — mod_version=1.2.3, yarn 1.21.11+build.6
 ├── buildvio.sh               — builds + copies to PrismLauncher mods
 ├── src/main/java/com/mcsow/
 │   ├── McSowMod.java         — common init, loads config
@@ -37,7 +37,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 ## Current Physics Flow (each tick)
 
 1. `onGround` / `justLanded` detection (`wasInAir` from previous tick)
-2. **Jump** check (`checkJump`): sets `vel.y = DEFAULT_JUMPSPEED` (never additive), resets dash/walljump state
+2. **Jump** check (`checkJump`): sets `vel.y = DEFAULT_JUMPSPEED` (never additive), resets dash state. **Crouch-jump**: if crouched, converts 75% of horizontal speed to vertical (`vel.y = DEFAULT_JUMPSPEED + 0.75·hspeed`) and keeps 25% horizontal (`vx,vz ×= 0.25`) — trade momentum for height
 3. Timer decrements (dashTime, crouchTime, forwardTime, crouchSlideTime)
 4. Dash guard: skip dash if `s.jumped || (onGround && jumpPressed)`
 5. **Dash** check (`checkDash`): input-based direction (WASD relative to camera) or camera-forward, sets vertical to `PM_DASHUPSPEED`, horizontal to max(current speed, DEFAULT_DASHSPEED)
@@ -59,7 +59,7 @@ Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minec
 | PM_FRICTION | 8.0 | — | Warsow default |
 | PM_ACCELERATE | 12.0 | — | Ground acceleration |
 | PM_DECELERATE | 12.0 | — | Friction control threshold |
-| PM_AIRACCELERATE | 1.1 | — | Air accel / quake-strafe gain (Warsow 1.0, tuned ×1.1) |
+| PM_AIRACCELERATE | 1.075 | — | Air accel / quake-strafe gain (Warsow 1.0, tuned ×1.075) |
 | PM_AIRDECELERATE | 2.0 | — | Air deceleration |
 | DEFAULT_PLAYERSPEED | 320.0 | — | Base max speed |
 | DEFAULT_DASHSPEED | 450.0 | — | Minimum dash horizontal speed |
@@ -89,6 +89,10 @@ Walljump was disabled due to inconsistent collision detection, and all its code 
 - Fine-tune constants (jump height, dash height, friction, gravity)
 - ~~Phase 3: Air movement (air control, bunnyhop, WASD in air)~~ — DONE (v1.2.1): exact port of Warsow "Air Control" mode (`PMFEAT_AIRCONTROL`, no fwdbunny). WASD alone does not accelerate; speed comes from strafe accel + air-control redirect. Sub-stepped `AIR_SUBSTEPS=3`×/tick. Ground/jump/dash constants kept on the existing (non-Warsow) 1.4-gravity baseline per user; retune air by feel later.
 - NOTE: mod's gravity baseline is NOT Warsow-exact — real Warsow is `GRAVITY=850`, `BASEGRAVITY=800`, `GRAVITY_COMPENSATE=1.0625`, `DEFAULT_DASHSPEED=475`. Mod currently uses `GRAVITY=1120`, compensate `1.4`, dash `450`. Reconcile if going for a full replica.
+- **NEXT — Collision + walljump (user roadmap):**
+  1. **Collision fix (prerequisite):** our `player.move()` delta doesn't truly collide — when jumping under a block the player floats for the jump duration because the server snaps us back each tick. Fix: interpolate between the pre-collision frame and the frame we contact a wall/ceiling/floor to place the player exactly flush with the block hitbox, then clamp the velocity direction so we can move *away* from the surface but never attempt to move *into* it.
+  2. **Reset vertical speed on ground contact** (currently only zeroed on jump/dash) — needed so landing under/near blocks behaves.
+  3. **Clamp x/z velocity when hitting a wall.**
+  4. **Walljump:** when hugging a wall and pressing dash (optionally with a direction), launch away from the wall — direction is always away from the wall normal regardless of input. Restore the removed `checkWalljump`/`findWallNormal` from git history and adapt to the new collision model.
 - Phase 4: Water move, crouch slide
 - Phase 5: Server-side special-key networking for dedicated servers
-- Improve walljump collision detection (deferred)
