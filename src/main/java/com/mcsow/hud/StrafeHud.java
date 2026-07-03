@@ -24,14 +24,8 @@ public final class StrafeHud {
     private static final int GAIN    = 0xFF43D047; // green — accelerating
     private static final int LOSE    = 0xFFE04343; // red — decelerating
     private static final int NEUTRAL = 0xFFDDDDDD; // ~white — steady
-    private static final int BG      = 0x90000000;
-    private static final int TICK    = 0xFFFFFFFF;
-
-    private static final int    OPTIMAL = 0xFFFFD21E; // amber — optimal-angle markers
+    private static final int OPTIMAL = 0xFFFFD21E; // amber — optimal-angle markers
     private static final double ACCEL_EPS = 0.5;   // Warsow units/tick to count as gain/loss
-    private static final double RANGE_DEG = 30.0;  // angle mapped to half the bar width
-    private static final int    BAR_W = 180;
-    private static final int    BAR_H = 6;
 
     private StrafeHud() {}
 
@@ -56,33 +50,43 @@ public final class StrafeHud {
         int w = ctx.getScaledWindowWidth();
         int h = ctx.getScaledWindowHeight();
         int cx = w / 2;
-        int barX = cx - BAR_W / 2;
-        int barY = h / 2 + 26;
-        double halfW = BAR_W / 2.0;
         TextRenderer tr = mc.textRenderer;
+
+        // pinhole projection of a yaw offset (deg from view) to a screen x, using the
+        // vertical FOV — so markers land where that world direction actually appears.
+        double vfov = mc.options.getFov().getValue();
+        double scale = (h / 2.0) / Math.tan(Math.toRadians(vfov) / 2.0);
+
+        int markTop = h / 2 + 8, markBot = h / 2 + 18;
 
         // ---- speed number, centred just below the crosshair ----
         String speedStr = Integer.toString((int) Math.round(speed));
-        ctx.drawTextWithShadow(tr, speedStr, cx - tr.getWidth(speedStr) / 2, h / 2 + 12, accelColor);
+        ctx.drawTextWithShadow(tr, speedStr, cx - tr.getWidth(speedStr) / 2, h / 2 - 22, accelColor);
 
-        // ---- angle bar; centre = looking straight along your velocity ----
-        ctx.fill(barX - 1, barY - 1, barX + BAR_W + 1, barY + BAR_H + 1, BG);
-        ctx.fill(cx - 1, barY - 3, cx + 1, barY + BAR_H + 3, TICK);
+        // ---- view reference tick at centre ----
+        ctx.fill(cx, markTop - 2, cx + 1, markBot + 2, 0x66FFFFFF);
 
-        // ---- optimal-angle triangles at ±optimal (aim your velocity marker onto one) ----
-        if (!Double.isNaN(optimal)) {
-            int off = (int) Math.round(Math.min(optimal, RANGE_DEG) / RANGE_DEG * halfW);
-            triangleDown(ctx, cx - off, barY - 2);
-            triangleDown(ctx, cx + off, barY - 2);
+        // ---- optimal-angle triangles: draw where the velocity WOULD point on screen if you
+        //      were at the ideal ±optimal angle (aim your velocity marker onto one) ----
+        if (!Double.isNaN(optimal) && optimal < 85.0) {
+            triangleDown(ctx, projectX(cx, scale, -optimal), markTop);
+            triangleDown(ctx, projectX(cx, scale,  optimal), markTop);
         }
 
-        // ---- velocity direction marker relative to view, tinted by accel ----
+        // ---- velocity marker: drawn at the on-screen direction you're actually moving ----
         if (!Double.isNaN(velYaw)) {
-            double diff = MathHelper.wrapDegrees(velYaw - viewYaw); // −180..180; 0 = aligned
-            double clamped = MathHelper.clamp(diff, -RANGE_DEG, RANGE_DEG);
-            int ix = cx + (int) Math.round(clamped / RANGE_DEG * halfW);
-            ctx.fill(ix - 1, barY - 1, ix + 1, barY + BAR_H + 1, accelColor);
+            double diff = MathHelper.wrapDegrees(velYaw - viewYaw); // −180..180; 0 = straight ahead
+            if (Math.abs(diff) < 85.0) { // in front of you (projectable)
+                int vx = projectX(cx, scale, diff);
+                ctx.fill(vx - 1, markTop, vx + 2, markBot, accelColor);
+            }
         }
+    }
+
+    // project a yaw offset (degrees from view centre) to a screen x, clamped on-screen
+    private static int projectX(int cx, double scale, double angleDeg) {
+        double x = cx + Math.tan(Math.toRadians(angleDeg)) * scale;
+        return (int) Math.round(x);
     }
 
     // small downward-pointing triangle whose tip sits at (px, tipY)
