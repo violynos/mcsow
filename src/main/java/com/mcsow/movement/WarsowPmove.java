@@ -145,6 +145,9 @@ public final class WarsowPmove {
         boolean jumped;
         double lastHudSpeed;     // strafe HUD: previous-tick horizontal speed (for accel)
         double hudAccel;         // strafe HUD: speed change this tick (>0 gaining, <0 losing)
+        double hudWishYaw = Double.NaN;    // strafe HUD: input (wish) direction as MC yaw; NaN if no input
+        double hudNextVelYaw = Double.NaN; // strafe HUD: predicted next-tick velocity direction (MC yaw)
+        boolean hudQuakestrafe;            // strafe HUD: holding diagonal (forward + strafe) inputs
     }
 
     private static PlayerMoveState state(PlayerEntity p) {
@@ -167,14 +170,17 @@ public final class WarsowPmove {
         return s == null ? 0 : s.hudAccel;
     }
 
-    // Optimal air-strafe angle (degrees) between your view and velocity for the current
-    // speed — where +strafe air acceleration is maximised. For strafe air physics the max
-    // speed gain is at asin(wishspeed / (2·speed)). NaN when too slow to define.
+    // Optimal strafe angle (degrees) between your VELOCITY and your VIEW, for diagonal
+    // (quakestrafe) inputs. This is Warsow/Warfork's exact strafe-HUD formula
+    // (cg_hud CG_GetRaceVars): acos(runSpeed / speed) − 45°, clamped to ≥ 0. It's a function of
+    // speed only: 0° at/below run speed (≈450 too), then grows (≈15° at 640, ≈24° at 900) — the
+    // faster you go, the further off your view your velocity should be. The −45° bakes in the
+    // 45° diagonal-input offset.
     public static double getHudOptimalAngle(PlayerEntity p) {
         double speed = getHudSpeed(p);
-        double x = PM_WISHSPEED / (2.0 * Math.max(speed, 1.0));
-        if (x >= 1.0) return Double.NaN;
-        return Math.toDegrees(Math.asin(x));
+        if (speed <= DEFAULT_PLAYERSPEED) return 0.0; // acos domain guard; angle clamps to 0 here anyway
+        double a = Math.toDegrees(Math.acos(DEFAULT_PLAYERSPEED / speed)) - 45.0;
+        return Math.max(a, 0.0);
     }
 
     // Velocity direction as an MC yaw (degrees); NaN if essentially not moving.
@@ -184,6 +190,24 @@ public final class WarsowPmove {
         double vx = s.velocity.x, vz = s.velocity.z;
         if (vx * vx + vz * vz < 1.0) return Double.NaN;
         return Math.toDegrees(Math.atan2(-vx, vz));
+    }
+
+    // Wish (input) direction as an MC yaw (degrees); NaN if no movement keys are held.
+    public static double getHudWishYaw(PlayerEntity p) {
+        PlayerMoveState s = STATES.get(p.getId());
+        return s == null ? Double.NaN : s.hudWishYaw;
+    }
+
+    // Predicted next-tick velocity direction as an MC yaw (degrees); NaN if ~still.
+    public static double getHudNextVelYaw(PlayerEntity p) {
+        PlayerMoveState s = STATES.get(p.getId());
+        return s == null ? Double.NaN : s.hudNextVelYaw;
+    }
+
+    // True while the player holds diagonal (forward + strafe) "quakestrafe" inputs.
+    public static boolean getHudQuakestrafe(PlayerEntity p) {
+        PlayerMoveState s = STATES.get(p.getId());
+        return s != null && s.hudQuakestrafe;
     }
 
     // Keep our internal (Warsow-unit) velocity aligned with the player's real MC
@@ -226,6 +250,7 @@ public final class WarsowPmove {
         float jumpSpeed = DEFAULT_JUMPSPEED + (float) jumpBoostBonus(player);
         float fwdPush  = (float) (fwdInput  * maxspeed);
         float sidePush = (float) (sideInput * maxspeed);
+        s.hudQuakestrafe = fwdPush > 0f && sidePush != 0f; // diagonal (forward + strafe) inputs
 
         // ---- WALLJUMP (runs BEFORE jump so a jump press cannot overwrite it). Eligibility
         //      was set last frame by the collision prediction; if dash is held now, launch. ----
@@ -297,8 +322,10 @@ public final class WarsowPmove {
         Vec3d wishdir;
         if (wishLen > 0.001) {
             wishdir = new Vec3d(wishX / wishLen, 0, wishZ / wishLen);
+            s.hudWishYaw = Math.toDegrees(Math.atan2(-wishdir.x, wishdir.z)); // input dir for the HUD
         } else {
             wishdir = Vec3d.ZERO;
+            s.hudWishYaw = Double.NaN;
         }
 
         // ---- water / ground / air move → this tick's displacement in Warsow units ----
@@ -353,6 +380,22 @@ public final class WarsowPmove {
         double hudSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
         s.hudAccel = hudSpeed - s.lastHudSpeed;
         s.lastHudSpeed = hudSpeed;
+
+        // ---- strafe HUD: where the velocity will point NEXT tick if the current input holds.
+        //      Replay the horizontal move one tick forward from the finalised velocity (same
+        //      branch + air sub-stepping). Gravity/friction don't affect the horizontal yaw. ----
+        Vec3d nv = vel;
+        if (inWater) {
+            double subFt = (double) FT / AIR_SUBSTEPS;
+            for (int i = 0; i < AIR_SUBSTEPS; i++) nv = airMove(nv, wishdir, wishspeed, sidePush, fwdPush, false, (float) subFt);
+        } else if (onGround) {
+            nv = groundMove(nv, wishdir, wishspeed, FT);
+        } else {
+            double subFt = (double) FT / AIR_SUBSTEPS;
+            for (int i = 0; i < AIR_SUBSTEPS; i++) nv = airMove(nv, wishdir, wishspeed, sidePush, fwdPush, s.walljumping, (float) subFt);
+        }
+        s.hudNextVelYaw = (nv.x * nv.x + nv.z * nv.z < 1.0)
+                ? Double.NaN : Math.toDegrees(Math.atan2(-nv.x, nv.z));
 
         // ---- apply to entity (Warsow units → MC blocks via UNIT_SCALE) ----
         // MC's move() sweeps collisions and stops us flush against blocks. We then

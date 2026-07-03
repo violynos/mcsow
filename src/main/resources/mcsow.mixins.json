@@ -8,7 +8,8 @@
     ],
     "client": [
         "ClientPlayerMixin",
-        "ClientPlayerEntityTravelMixin"
+        "ClientPlayerEntityTravelMixin",
+        "DrawContextAccessor"
     ],
     "injectors": {
         "defaultRequire": 1
