@@ -9,7 +9,9 @@
     "client": [
         "ClientPlayerMixin",
         "ClientPlayerEntityTravelMixin",
-        "DrawContextAccessor"
+        "DrawContextAccessor",
+        "InGameHudCrosshairMixin",
+        "BarExperienceLevelMixin"
     ],
     "injectors": {
         "defaultRequire": 1

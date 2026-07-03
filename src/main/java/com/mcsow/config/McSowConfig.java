@@ -23,7 +23,8 @@ public final class McSowConfig {
     /** Serializable config holder. Field initializers = default values. */
     public static final class Data {
         public boolean enabled = true;
-        public boolean strafeHud = false;   // show the strafe HUD overlay
+        public boolean strafeHud = false;    // show the strafe HUD overlay
+        public boolean speedOnXpBar = false; // show speed as the XP-bar level number (hides the HUD's own number)
 
         // --- movement tunables (defaults = current tuning) ---
         public float gravity         = 1120.0f;             // downward accel (Warsow units/s^2)

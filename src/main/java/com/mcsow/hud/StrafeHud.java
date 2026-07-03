@@ -9,14 +9,19 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.ScreenRect;
+import net.minecraft.client.gui.hud.bar.Bar;
 import net.minecraft.client.gui.render.state.GuiRenderState;
 import net.minecraft.client.gui.render.state.SimpleGuiElementRenderState;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.texture.TextureSetup;
+import net.minecraft.text.Style;
+import net.minecraft.text.StyleSpriteSource;
+import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix3x2f;
 import org.joml.Vector2f;
 
@@ -27,6 +32,11 @@ import org.joml.Vector2f;
  */
 public final class StrafeHud {
     private static final Identifier ID = Identifier.of("mcsow", "strafe_hud");
+    private static final Identifier SPEED_FONT = Identifier.of("mcsow", "geo"); // speed-display font
+
+    // true only while WE draw the speed into the XP-level slot, so the Bar mixin lets it through
+    // (it cancels the vanilla level draw when "Speed on XP bar" is on).
+    public static boolean renderingSpeedOnXp = false;
 
     // ---- velocity bar (green): where the player is actually moving on screen ----
     private static final int BAR_W = 7;          // px wide
@@ -47,6 +57,7 @@ public final class StrafeHud {
     //      angle — it sits at velocity ± optimal, so the triangle scales around its pivot. ----
     private static final int TRI_W = 476;         // px wide (each, inner edge → pivot at optimal=0)
     private static final int TRI_H = 16;          // px tall
+    private static final double TRI_MIN_SPEED = 430; // hide the triangles below this speed
     private static final int TRI_WHITE = 0x80FFFFFF; // default (~50% alpha)
     private static final int TRI_GREEN = 0x8000FF00; // lit: quakestrafe + crosshair on this triangle
 
@@ -67,12 +78,18 @@ public final class StrafeHud {
         ClientPlayerEntity p = mc.player;
         if (p == null || mc.options.hudHidden) return;
 
-        double speed = WarsowPmove.getHudSpeed(p);
         double accel = WarsowPmove.getHudAccel(p);            // speed change since last tick (>0 gaining)
-        double velYaw = WarsowPmove.getHudVelYaw(p);          // NaN when ~still
-        double optimal = WarsowPmove.getHudOptimalAngle(p);   // optimal strafe angle (deg), 0 below ~450 speed
         boolean quakestrafe = WarsowPmove.getHudQuakestrafe(p); // diagonal (forward + strafe) inputs
         float viewYaw = p.getYaw();
+
+        // Interpolate the velocity between ticks by the frame's tick progress so the HUD moves
+        // smoothly at the render framerate instead of snapping at 20 Hz. Speed, direction and the
+        // optimal angle are all derived from this displayed velocity.
+        Vec3d dvel = WarsowPmove.getHudDisplayVelocity(p, tick.getTickProgress(false));
+        double hSpeedSq = dvel.x * dvel.x + dvel.z * dvel.z;
+        double speed = Math.sqrt(hSpeedSq);
+        double velYaw = hSpeedSq < 1.0 ? Double.NaN : Math.toDegrees(Math.atan2(-dvel.x, dvel.z));
+        double optimal = WarsowPmove.strafeOptimalAngle(speed);
 
         // ---- GUI scaling removed: undo Minecraft's GUI Scale so this HUD renders 1:1 with the
         //      physical framebuffer. All coordinates below are in physical pixels. ----
@@ -92,6 +109,16 @@ public final class StrafeHud {
         int lookBottom = squareTop - LOOK_GAP;   // bottom edge of the white look bar
         int lookTop = lookBottom - LOOK_H;       // top edge of the white look bar
 
+        // ---- speed on the XP bar: draw the speed as the vanilla XP level number, in scaled GUI
+        //      coords (before the physical-pixel transform below). The Bar mixin hides the real
+        //      level while this is on; the flag lets our own draw through. ----
+        boolean speedOnXp = McSowConfig.get().speedOnXpBar;
+        if (speedOnXp) {
+            renderingSpeedOnXp = true;
+            Bar.drawExperienceLevel(ctx, mc.textRenderer, (int) Math.round(speed));
+            renderingSpeedOnXp = false;
+        }
+
         var matrices = ctx.getMatrices();
         matrices.pushMatrix();
         matrices.scale(1.0f / sf, 1.0f / sf); // cancel the GUI scale → 1 unit == 1 physical pixel
@@ -108,19 +135,26 @@ public final class StrafeHud {
                 // the optimal-angle marker. The pivot (far outer bottom corner) is anchored at
                 // velocity ± TRI_W, so the triangle scales around it: the inner edges meet at
                 // velocity when optimal = 0 and separate (opening the optimal zone) as you speed up.
-                int lookCenter = (lookTop + lookBottom) / 2;
-                int apexY = lookCenter - TRI_H / 2;
-                int baseY = lookCenter + TRI_H / 2;
-                // inner edge x = velocity ± optimal (projected); clamp so it can squish down to
-                // zero width against the pivot but never cross it (which would flip the triangle).
-                int pivotR = vx + TRI_W, pivotL = vx - TRI_W;
-                int xRight = Math.min(projectX(cx, scale, diff + optimal), pivotR);
-                int xLeft  = Math.max(projectX(cx, scale, diff - optimal), pivotL);
-                // green when holding quakestrafe AND speed increased since last tick (accelerating);
-                // white otherwise.
-                int triColor = (quakestrafe && accel > 0.0) ? TRI_GREEN : TRI_WHITE;
-                triangle(ctx, xRight, apexY, xRight, baseY, pivotR, baseY, triColor); // right
-                triangle(ctx, xLeft,  apexY, xLeft,  baseY, pivotL, baseY, triColor); // left
+                // Hidden below TRI_MIN_SPEED (no meaningful strafe zone at low speed).
+                if (speed >= TRI_MIN_SPEED) {
+                    int lookCenter = (lookTop + lookBottom) / 2;
+                    int apexY = lookCenter - TRI_H / 2;
+                    int baseY = lookCenter + TRI_H / 2;
+                    // inner edge x = velocity ± optimal (projected); clamp so it can squish down to
+                    // zero width against the pivot but never cross it (which would flip the triangle).
+                    // scale the width inversely with FOV (horizontal only) so zooming in — which
+                    // spreads the same angle over more pixels — doesn't shrink the triangle past the
+                    // optimal marker. 110 (Quake Pro) = base width; 55 (half FOV) = double width.
+                    int triW = (int) Math.round(TRI_W * (110.0 / vfov));
+                    int pivotR = vx + triW, pivotL = vx - triW;
+                    int xRight = Math.min(projectX(cx, scale, diff + optimal), pivotR);
+                    int xLeft  = Math.max(projectX(cx, scale, diff - optimal), pivotL);
+                    // green when holding quakestrafe AND speed increased since last tick
+                    // (accelerating); white otherwise.
+                    int triColor = (quakestrafe && accel > 0.0) ? TRI_GREEN : TRI_WHITE;
+                    triangle(ctx, xRight, apexY, xRight, baseY, pivotR, baseY, triColor); // right
+                    triangle(ctx, xLeft,  apexY, xLeft,  baseY, pivotL, baseY, triColor); // left
+                }
 
                 // green velocity bar (7×36, top 107px from screen top)
                 int left = vx - BAR_W / 2;
@@ -128,22 +162,32 @@ public final class StrafeHud {
             }
         }
 
+        // ---- centre marker (replaces the vanilla crosshair): a white 2×2 with a 1px black
+        //      outline on the four sides but not the corners — a black 4×2 + 2×4 plus behind a
+        //      white 2×2. ----
+        ctx.fill(midX - 2, midY - 1, midX + 2, midY + 1, BLACK); // horizontal arm (4×2)
+        ctx.fill(midX - 1, midY - 2, midX + 1, midY + 2, BLACK); // vertical arm (2×4)
+        ctx.fill(midX - 1, midY - 1, midX + 1, midY + 1, WHITE); // white 2×2 centre
+
         // ---- look-direction bar: fixed at screen centre, 2×36 white with a 1px black outline,
         //      19px above the centre square (the outline is drawn outside that 19px gap) ----
         ctx.fill(midX - LOOK_W / 2 - 1, lookTop - 1, midX + LOOK_W / 2 + 1, lookBottom + 1, BLACK); // outline
         ctx.fill(midX - LOOK_W / 2,     lookTop,     midX + LOOK_W / 2,     lookBottom,     WHITE); // bar
 
-        // ---- speed number: 24px-tall digits, centred horizontally, bottom 46px off the screen
-        //      bottom. Vanilla digits are 7px tall, so scale by 24/7 via a nested matrix. ----
-        String speedStr = Integer.toString((int) Math.round(speed));
-        float numScale = NUM_HEIGHT / BASE_DIGIT_H;
-        float textW = mc.textRenderer.getWidth(speedStr) * numScale;
-        float numTop = (h - NUM_BOTTOM_OFF) - NUM_HEIGHT;
-        matrices.pushMatrix();
-        matrices.translate(midX - textW / 2f, numTop);
-        matrices.scale(numScale, numScale);
-        ctx.drawTextWithShadow(mc.textRenderer, speedStr, 0, 0, WHITE);
-        matrices.popMatrix();
+        // ---- speed number: Geo font, centred horizontally, bottom 46px off the screen bottom.
+        //      Skipped when the speed is shown on the XP bar instead. ----
+        if (!speedOnXp) {
+            Text speedText = Text.literal(Integer.toString((int) Math.round(speed)))
+                    .setStyle(Style.EMPTY.withFont(new StyleSpriteSource.Font(SPEED_FONT)));
+            float numScale = NUM_HEIGHT / BASE_DIGIT_H;
+            float textW = mc.textRenderer.getWidth(speedText) * numScale;
+            float numTop = (h - NUM_BOTTOM_OFF) - NUM_HEIGHT;
+            matrices.pushMatrix();
+            matrices.translate(midX - textW / 2f, numTop);
+            matrices.scale(numScale, numScale);
+            ctx.drawTextWithShadow(mc.textRenderer, speedText, 0, 0, WHITE);
+            matrices.popMatrix();
+        }
 
         matrices.popMatrix();
     }

@@ -30,12 +30,21 @@ public final class McSowConfigScreen {
                 .setTooltip(Text.literal("Master switch. When off, vanilla Minecraft movement is used instead of Warsow physics."))
                 .setSaveConsumer(v -> cfg.enabled = v)
                 .build());
-        general.addEntry(eb.startBooleanToggle(Text.literal("Strafe HUD"), cfg.strafeHud)
+
+        ConfigCategory gui = builder.getOrCreateCategory(Text.literal("GUI"));
+        gui.addEntry(eb.startBooleanToggle(Text.literal("Strafe HUD"), cfg.strafeHud)
                 .setDefaultValue(false)
                 .setTooltip(
-                    Text.literal("Show a strafe HUD overlay: your speed, a velocity-vs-view angle bar, and"),
-                    Text.literal("accel arrows that go green when you're gaining speed, red when losing it."))
+                    Text.literal("Show the Warfork-style strafe HUD: speed readout, optimal-angle triangles,"),
+                    Text.literal("velocity/look markers, and a centre marker (hides the vanilla crosshair)."))
                 .setSaveConsumer(v -> cfg.strafeHud = v)
+                .build());
+        gui.addEntry(eb.startBooleanToggle(Text.literal("Speed on XP bar"), cfg.speedOnXpBar)
+                .setDefaultValue(false)
+                .setTooltip(
+                    Text.literal("Show your speed as the XP-bar level number instead of the HUD's own readout."),
+                    Text.literal("Off: the HUD draws its own speed number and the XP bar shows the vanilla level / locator bar."))
+                .setSaveConsumer(v -> cfg.speedOnXpBar = v)
                 .build());
 
         ConfigCategory air = builder.getOrCreateCategory(Text.literal("Air"));

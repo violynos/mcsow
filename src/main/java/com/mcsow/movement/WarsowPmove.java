@@ -123,6 +123,7 @@ public final class WarsowPmove {
 
     private static class PlayerMoveState {
         Vec3d velocity = Vec3d.ZERO;
+        Vec3d prevVelocity = Vec3d.ZERO; // HUD: velocity at the end of the previous tick (for frame interpolation)
         boolean jumpHeld;
         boolean specialHeld;
         int dashTime;
@@ -177,10 +178,25 @@ public final class WarsowPmove {
     // faster you go, the further off your view your velocity should be. The −45° bakes in the
     // 45° diagonal-input offset.
     public static double getHudOptimalAngle(PlayerEntity p) {
-        double speed = getHudSpeed(p);
+        return strafeOptimalAngle(getHudSpeed(p));
+    }
+
+    // Optimal strafe angle (deg) for a given horizontal speed (Warsow units). See getHudOptimalAngle.
+    public static double strafeOptimalAngle(double speed) {
         if (speed <= DEFAULT_PLAYERSPEED) return 0.0; // acos domain guard; angle clamps to 0 here anyway
         double a = Math.toDegrees(Math.acos(DEFAULT_PLAYERSPEED / speed)) - 45.0;
         return Math.max(a, 0.0);
+    }
+
+    // HUD: horizontal velocity interpolated between the previous and current tick by the frame's
+    // tick progress (0..1), so HUD elements move smoothly at the render framerate instead of
+    // snapping at the 20 Hz tick rate.
+    public static Vec3d getHudDisplayVelocity(PlayerEntity p, float tickProgress) {
+        PlayerMoveState s = STATES.get(p.getId());
+        if (s == null) return Vec3d.ZERO;
+        Vec3d a = s.prevVelocity, b = s.velocity;
+        double t = tickProgress;
+        return new Vec3d(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
     }
 
     // Velocity direction as an MC yaw (degrees); NaN if essentially not moving.
@@ -229,6 +245,7 @@ public final class WarsowPmove {
                              float fwdInput, float sideInput) {
         PlayerMoveState s = state(player);
         Vec3d vel = s.velocity;
+        s.prevVelocity = s.velocity; // snapshot last tick's final velocity for HUD interpolation
 
         // ---- on-ground (checked first, before anything) ----
         // a step-up last tick forces us grounded this tick (holding jump overrides it
@@ -722,6 +739,11 @@ public final class WarsowPmove {
         for (int i = 0; i < WJ_PLANES; i++) {
             double y = box.minY + i * WJ_PLANE_SPACING;
             Box plane = new Box(box.minX, y, box.minZ, box.maxX, y + e, box.maxZ);
+            // Skip a slice whose plane is already inside a block at its current position: a real
+            // wall only blocks the offset (next-frame) plane on one side, never the un-offset one.
+            // A slice embedded on all sides (e.g. a ceiling above, or a floor) would otherwise
+            // register as a wall from every direction — ignore it.
+            if (!isFree(player, plane)) continue;
             if (moveX && !isFree(player, plane.offset(stepX, 0, 0))) nx = -Math.signum(stepX);
             if (moveZ && !isFree(player, plane.offset(0, 0, stepZ))) nz = -Math.signum(stepZ);
         }
