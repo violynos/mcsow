@@ -19,6 +19,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public interface BarExperienceLevelMixin {
     @Inject(method = "drawExperienceLevel", at = @At("HEAD"), cancellable = true)
     private static void mcsow$suppressXpLevel(DrawContext ctx, TextRenderer tr, int level, CallbackInfo ci) {
-        if (McSowConfig.get().speedOnXpBar && !StrafeHud.renderingSpeedOnXp) ci.cancel();
+        if (McSowConfig.hudActive() && McSowConfig.get().speedOnXpBar && !StrafeHud.renderingSpeedOnXp) ci.cancel();
     }
 }

@@ -44,6 +44,12 @@ public final class McSowConfig {
         return INSTANCE;
     }
 
+    /** The strafe HUD / SOW GUI is only active when BOTH the master switch and the HUD toggle are on. */
+    public static boolean hudActive() {
+        Data d = get();
+        return d.enabled && d.strafeHud;
+    }
+
     public static void load() {
         try {
             if (Files.exists(PATH)) {

@@ -4,7 +4,10 @@ import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.enchantment.Enchantments;
 import net.minecraft.entity.MovementType;
+import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.entity.attribute.EntityAttributeModifier;
 import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.util.Identifier;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.player.PlayerEntity;
@@ -22,6 +25,14 @@ public final class WarsowPmove {
     public static boolean isEnabled() { return enabled; }
 
     public static void setEnabled(boolean e) { enabled = e; }
+
+    // True when Warsow physics is actually driving this player's movement (enabled and none of the
+    // vanilla-controlled states apply). Mirrors the travel mixin's condition; also used to keep the
+    // FOV steady (no sprint/speed zoom) while on Warsow movement.
+    public static boolean controlsMovement(PlayerEntity p) {
+        return enabled && !p.isSpectator() && !p.getAbilities().flying
+            && !p.hasVehicle() && !p.isGliding() && !p.isClimbing();
+    }
 
     // Copy user-tunable movement values from config into the live fields.
     public static void applyConfig(com.mcsow.config.McSowConfig.Data d) {
@@ -59,12 +70,21 @@ public final class WarsowPmove {
     public static float DEFAULT_JUMPSPEED           = 280.0f * GRAVITY_COMPENSATE; // config-tunable
     public static float DEFAULT_DASHSPEED           = 450.0f; // minimum dash speed (config-tunable)
 
-    // crouch-jump: fraction of horizontal speed converted to vertical (rest kept). (config-tunable)
+    // crouch-jump (on the ground): add this fraction of horizontal speed to vertical, keep
+    // CROUCH_JUMP_KEEP of the horizontal. (ratio config-tunable)
     private static float CROUCH_JUMP_RATIO          = 0.75f;
+    private static final float CROUCH_JUMP_KEEP     = 0.50f;
+    // step-up launches (hitting a ledge): crouch held → crouch-jump; else dash held → dash launch.
+    // Each adds VERT of horizontal speed to vertical and keeps KEEP of the horizontal.
+    private static final float STEP_CROUCH_VERT     = 1.20f;
+    private static final float STEP_CROUCH_KEEP     = 0.25f;
+    private static final float STEP_DASH_VERT       = 0.95f;
+    private static final float STEP_DASH_KEEP       = 0.50f;
 
 
     // friction / acceleration
     private static final float PM_FRICTION         = 8.0f;
+    private static final float DEFAULT_SLIPPERINESS = 0.6f; // vanilla ground slipperiness (ice ≈ 0.98)
     private static final float PM_ACCELERATE       = 12.0f;
     private static float PM_AIRACCELERATE          = 1.075f; // Warsow 1.0, tuned ×1.075 (config-tunable)
     private static final float PM_AIRDECELERATE    = 2.0f;
@@ -327,7 +347,7 @@ public final class WarsowPmove {
 
         // ---- friction (ground only; water handles its own friction in its branch) ----
         if (!inWater && onGround && !stayAirborne) {
-            vel = applyFriction(vel, s, FT);
+            vel = applyFriction(vel, s, player, FT);
         }
 
         // ---- wish direction ----
@@ -447,7 +467,33 @@ public final class WarsowPmove {
             // tick, fighting the step-up and jittering.
             if (step > 0 && isFree(player, player.getBoundingBox().offset(0, step, 0))) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
-                s.forceGround = true;   // start next tick grounded (applied at frame end below)
+                // Step-up launch: crouch-jump takes priority over dash. Uses the buffered pre-clip
+                // speed if we clipped a wall, and goes airborne so the pop applies.
+                double useX = (s.wallBufferX > 0) ? s.wallSaveX : vx;
+                double useZ = (s.wallBufferZ > 0) ? s.wallSaveZ : vz;
+                double hspeed = Math.sqrt(useX * useX + useZ * useZ);
+                if (crouchPressed) {
+                    // crouch-jump step-up: 120% of horizontal speed → height, keep 25% horizontal
+                    vx = useX * STEP_CROUCH_KEEP;
+                    vz = useZ * STEP_CROUCH_KEEP;
+                    vy = jumpSpeed + STEP_CROUCH_VERT * hspeed;
+                    s.wallBufferX = 0;
+                    s.wallBufferZ = 0;
+                    player.setOnGround(false);
+                } else if (specialKeyDown && s.walljumpTime <= 0 && !s.walljumpCount) {
+                    // dash step-up: 95% of horizontal speed → height, keep 50% horizontal.
+                    // Consumes the wall-bounce cooldown.
+                    vx = useX * STEP_DASH_KEEP;
+                    vz = useZ * STEP_DASH_KEEP;
+                    vy = jumpSpeed + STEP_DASH_VERT * hspeed;
+                    s.walljumpTime = PM_WALLJUMP_TIMEDELAY;
+                    s.walljumpCount = true;
+                    s.wallBufferX = 0;
+                    s.wallBufferZ = 0;
+                    player.setOnGround(false); // stay airborne so the launch velocity carries up
+                } else {
+                    s.forceGround = true;   // start next tick grounded (applied at frame end below)
+                }
                 blockedX = false;
                 blockedZ = false;
             }
@@ -538,7 +584,7 @@ public final class WarsowPmove {
     // ================================================================
     //  FRICTION (Warsow PM_Friction)
     // ================================================================
-    private static Vec3d applyFriction(Vec3d vel, PlayerMoveState s, float ft) {
+    private static Vec3d applyFriction(Vec3d vel, PlayerMoveState s, PlayerEntity player, float ft) {
         double spdSq = vel.x * vel.x + vel.z * vel.z; // horizontal only for ground friction
         if (spdSq < 1.0) {
             return new Vec3d(0, vel.y, 0);
@@ -546,6 +592,11 @@ public final class WarsowPmove {
         double spd = Math.sqrt(spdSq);
         float control = Math.max((float) spd, PM_DECELERATE);
         double drop = control * PM_FRICTION * ft;
+
+        // scale friction by the block underfoot's slipperiness: default ground (0.6) = full
+        // friction, ice (~0.98) = almost none so you slide. (1 - slip) / (1 - 0.6), floored at 0.
+        float slip = player.getEntityWorld().getBlockState(player.getVelocityAffectingPos()).getBlock().getSlipperiness();
+        drop *= Math.max(0.0, (1.0 - slip) / (1.0 - DEFAULT_SLIPPERINESS));
 
         if (s.crouchSliding) {
             if (s.crouchSlideTime < PM_CROUCHSLIDE_FADE) {
@@ -608,8 +659,7 @@ public final class WarsowPmove {
             double useX = (s.wallBufferX > 0) ? s.wallSaveX : vel.x;
             double useZ = (s.wallBufferZ > 0) ? s.wallSaveZ : vel.z;
             double hspeed = Math.sqrt(useX * useX + useZ * useZ);
-            double keep = 1.0 - CROUCH_JUMP_RATIO;
-            vel = new Vec3d(useX * keep, jumpSpeed + CROUCH_JUMP_RATIO * hspeed, useZ * keep);
+            vel = new Vec3d(useX * CROUCH_JUMP_KEEP, jumpSpeed + CROUCH_JUMP_RATIO * hspeed, useZ * CROUCH_JUMP_KEEP);
             s.wallBufferX = 0;
             s.wallBufferZ = 0;
         } else {
@@ -625,13 +675,27 @@ public final class WarsowPmove {
     //  MC MODIFIER SCALING (movement-speed attribute, Jump Boost, sneak/Swift Sneak)
     // ================================================================
 
+    // Vanilla's sprint speed-boost attribute modifier id (LivingEntity.SPRINTING_SPEED_MODIFIER_ID
+    // is private): an ADD_MULTIPLIED_TOTAL ×1.3 on movement speed.
+    private static final Identifier SPRINT_MODIFIER_ID = Identifier.of("minecraft", "sprinting");
+
     // Effective max ground speed in Warsow units. Scales DEFAULT_PLAYERSPEED by the
     // player's movement-speed attribute multiplier (Speed potion, Soul Speed, sprint,
     // item/attribute modifiers all fold into this), then applies the sneak factor
     // while sneaking on the ground.
     public static double playerMaxSpeed(PlayerEntity player) {
-        double base = player.getAttributeBaseValue(EntityAttributes.MOVEMENT_SPEED);
-        double cur  = player.getAttributeValue(EntityAttributes.MOVEMENT_SPEED);
+        EntityAttributeInstance inst = player.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
+        double base = (inst != null) ? inst.getBaseValue() : 0.1;
+        double cur  = (inst != null) ? inst.getValue() : base;
+        // Warsow drives ground speed itself and has no vanilla "sprint". Servers that apply the
+        // sprinting modifier inflate the synced movement-speed attribute (so MP is faster than SP
+        // for the same run) — strip the sprint boost's multiplicative factor so speed is
+        // sprint-independent and consistent everywhere. Only while Warsow movement is enabled:
+        // players who turn it off get vanilla movement (this method isn't reached) and keep sprint.
+        if (inst != null && enabled) {
+            EntityAttributeModifier sprint = inst.getModifier(SPRINT_MODIFIER_ID);
+            if (sprint != null) cur /= (1.0 + sprint.value());
+        }
         double mul  = (base > 1.0e-6) ? cur / base : 1.0; // 1.0 at no modifiers
         double speed = DEFAULT_PLAYERSPEED * mul;
         if (player.isSneaking() && player.isOnGround()) {

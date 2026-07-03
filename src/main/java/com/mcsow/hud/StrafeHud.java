@@ -32,6 +32,7 @@ import org.joml.Vector2f;
  */
 public final class StrafeHud {
     private static final Identifier ID = Identifier.of("mcsow", "strafe_hud");
+    private static final int REF_HEIGHT = 1080; // all HUD sizes are tuned in 1080p pixels, then scaled
     private static final Identifier SPEED_FONT = Identifier.of("mcsow", "geo"); // speed-display font
 
     // true only while WE draw the speed into the XP-level slot, so the Bar mixin lets it through
@@ -73,7 +74,7 @@ public final class StrafeHud {
     }
 
     private static void render(DrawContext ctx, RenderTickCounter tick) {
-        if (!McSowConfig.get().strafeHud) return;
+        if (!McSowConfig.hudActive()) return;
         MinecraftClient mc = MinecraftClient.getInstance();
         ClientPlayerEntity p = mc.player;
         if (p == null || mc.options.hudHidden) return;
@@ -91,15 +92,19 @@ public final class StrafeHud {
         double velYaw = hSpeedSq < 1.0 ? Double.NaN : Math.toDegrees(Math.atan2(-dvel.x, dvel.z));
         double optimal = WarsowPmove.strafeOptimalAngle(speed);
 
-        // ---- GUI scaling removed: undo Minecraft's GUI Scale so this HUD renders 1:1 with the
-        //      physical framebuffer. All coordinates below are in physical pixels. ----
+        // ---- resolution-independent layout: GUI Scale is bypassed, and all coordinates below are
+        //      in 1080p-REFERENCE pixels. The whole HUD is scaled to the real screen height at the
+        //      end, so it looks identical at any resolution (1080p = 1:1, everything tuned there). ----
         int sf = mc.getWindow().getScaleFactor();
-        int w = ctx.getScaledWindowWidth() * sf;   // physical framebuffer width
-        int h = ctx.getScaledWindowHeight() * sf;  // physical framebuffer height
+        int pw = ctx.getScaledWindowWidth() * sf;   // physical framebuffer width
+        int ph = ctx.getScaledWindowHeight() * sf;  // physical framebuffer height
+        double uiScale = ph / (double) REF_HEIGHT;   // 1080p reference; bigger screens scale up
+        int w = (int) Math.round(pw / uiScale);      // reference-space width (== pw at 1080p)
+        int h = REF_HEIGHT;                          // reference-space height (always 1080)
         int cx = w / 2;
 
-        // FOV pinhole projection: map a yaw offset (deg from view centre) to a screen x, so the
-        // bar lands where that world direction actually appears on screen.
+        // FOV pinhole projection: map a yaw offset (deg from view centre) to a reference-space x,
+        // so the bar lands where that world direction actually appears on screen.
         double vfov = mc.options.getFov().getValue();
         double scale = (h / 2.0) / Math.tan(Math.toRadians(vfov) / 2.0);
 
@@ -121,7 +126,8 @@ public final class StrafeHud {
 
         var matrices = ctx.getMatrices();
         matrices.pushMatrix();
-        matrices.scale(1.0f / sf, 1.0f / sf); // cancel the GUI scale → 1 unit == 1 physical pixel
+        // reference px → physical (× uiScale), then physical → GUI-projection space (÷ sf)
+        matrices.scale((float) (uiScale / sf), (float) (uiScale / sf));
 
         // ---- velocity-anchored elements: the strafe-zone triangles and the green velocity bar
         //      sit at the on-screen player-velocity direction ----

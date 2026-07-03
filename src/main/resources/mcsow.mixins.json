@@ -4,14 +4,17 @@
     "package": "com.mcsow.mixin",
     "compatibilityLevel": "JAVA_17",
     "mixins": [
-        "PlayerEntityMixin"
+        "PlayerEntityMixin",
+        "ServerPlayNetworkHandlerMixin",
+        "LivingEntityFallMixin"
     ],
     "client": [
         "ClientPlayerMixin",
         "ClientPlayerEntityTravelMixin",
         "DrawContextAccessor",
         "InGameHudCrosshairMixin",
-        "BarExperienceLevelMixin"
+        "BarExperienceLevelMixin",
+        "AbstractClientPlayerFovMixin"
     ],
     "injectors": {
         "defaultRequire": 1

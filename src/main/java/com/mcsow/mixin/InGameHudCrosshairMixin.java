@@ -17,6 +17,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class InGameHudCrosshairMixin {
     @Inject(method = "renderCrosshair", at = @At("HEAD"), cancellable = true)
     private void mcsow$hideCrosshair(DrawContext ctx, RenderTickCounter tick, CallbackInfo ci) {
-        if (McSowConfig.get().strafeHud) ci.cancel();
+        if (McSowConfig.hudActive()) ci.cancel();
     }
 }

@@ -25,7 +25,8 @@ public abstract class ClientPlayerEntityTravelMixin {
             || self.isSpectator()
             || self.getAbilities().flying
             || self.hasVehicle()
-            || self.isGliding();
+            || self.isGliding()
+            || self.isClimbing(); // ladders/vines: let vanilla handle climbing
 
         if (vanillaControls) {
             WarsowPmove.syncFromActual(self);
