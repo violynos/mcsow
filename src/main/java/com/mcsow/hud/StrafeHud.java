@@ -57,45 +57,44 @@ public final class StrafeHud {
         double vfov = mc.options.getFov().getValue();
         double scale = (h / 2.0) / Math.tan(Math.toRadians(vfov) / 2.0);
 
-        int markTop = h / 2 + 8, markBot = h / 2 + 18;
+        int yMid = h / 2; // the horizon = your (horizontal) movement direction line
 
-        // ---- speed number, centred just below the crosshair ----
+        // ---- speed number, centred above the crosshair ----
         String speedStr = Integer.toString((int) Math.round(speed));
-        ctx.drawTextWithShadow(tr, speedStr, cx - tr.getWidth(speedStr) / 2, h / 2 - 22, accelColor);
+        ctx.drawTextWithShadow(tr, speedStr, cx - tr.getWidth(speedStr) / 2, yMid - 24, accelColor);
 
-        // ---- view reference tick at centre ----
-        ctx.fill(cx, markTop - 2, cx + 1, markBot + 2, 0x66FFFFFF);
-
-        // ---- optimal-angle triangles: draw where the velocity WOULD point on screen if you
-        //      were at the ideal ±optimal angle (aim your velocity marker onto one) ----
+        // ---- two optimal-angle triangles: horizontal wedges pointing outward, flush with the
+        //      horizon; each inner (toward-centre) vertical edge sits at the ideal ±optimal
+        //      angle your movement should be at. Keep your velocity marker on that inner edge. ----
         if (!Double.isNaN(optimal) && optimal < 85.0) {
-            triangleDown(ctx, projectX(cx, scale, -optimal), markTop);
-            triangleDown(ctx, projectX(cx, scale,  optimal), markTop);
+            wedge(ctx, projectX(cx, scale,  optimal), yMid, +1); // right
+            wedge(ctx, projectX(cx, scale, -optimal), yMid, -1); // left
         }
 
-        // ---- velocity marker: drawn at the on-screen direction you're actually moving ----
+        // ---- velocity marker: the on-screen direction you're actually moving, accel-tinted ----
         if (!Double.isNaN(velYaw)) {
-            double diff = MathHelper.wrapDegrees(velYaw - viewYaw); // −180..180; 0 = straight ahead
-            if (Math.abs(diff) < 85.0) { // in front of you (projectable)
+            double diff = MathHelper.wrapDegrees(velYaw - viewYaw); // 0 = straight ahead
+            if (Math.abs(diff) < 85.0) {
                 int vx = projectX(cx, scale, diff);
-                ctx.fill(vx - 1, markTop, vx + 2, markBot, accelColor);
+                ctx.fill(vx - 1, yMid - 8, vx + 2, yMid + 9, accelColor);
             }
         }
     }
 
-    // project a yaw offset (degrees from view centre) to a screen x, clamped on-screen
+    // project a yaw offset (degrees from view centre) to a screen x
     private static int projectX(int cx, double scale, double angleDeg) {
-        double x = cx + Math.tan(Math.toRadians(angleDeg)) * scale;
-        return (int) Math.round(x);
+        return (int) Math.round(cx + Math.tan(Math.toRadians(angleDeg)) * scale);
     }
 
-    // small downward-pointing triangle whose tip sits at (px, tipY)
-    private static void triangleDown(DrawContext ctx, int px, int tipY) {
-        int size = 4;
-        for (int r = 0; r < size; r++) {
-            int half = size - r;      // widest at top, tip at bottom
-            int y = tipY - size + r;
-            ctx.fill(px - half, y, px + half, y + 1, OPTIMAL);
+    // horizontal triangle wedge: tall vertical inner edge at baseX (= the optimal angle),
+    // tapering to a point `LEN` px outward in direction dir (+1 right / −1 left), centred on
+    // yMid so it's flush with the horizon.
+    private static void wedge(DrawContext ctx, int baseX, int yMid, int dir) {
+        final int LEN = 12, HALF = 6;
+        for (int i = 0; i <= LEN; i++) {
+            int x = baseX + dir * i;
+            int hh = (int) Math.round(HALF * (1.0 - (double) i / LEN));
+            ctx.fill(x, yMid - hh, x + 1, yMid + hh + 1, OPTIMAL);
         }
     }
 }
