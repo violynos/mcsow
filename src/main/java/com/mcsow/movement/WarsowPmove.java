@@ -76,12 +76,10 @@ public final class WarsowPmove {
     // CROUCH_JUMP_KEEP of the horizontal. (ratio config-tunable)
     private static float CROUCH_JUMP_RATIO          = 0.75f;
     private static final float CROUCH_JUMP_KEEP     = 0.50f;
-    // step-up launches (hitting a ledge): crouch held → crouch-jump; else dash held → dash launch.
-    // Each adds VERT of horizontal speed to vertical and keeps KEEP of the horizontal.
+    // step-up launch (hitting a ledge while crouch held → crouch-jump pop):
+    // adds VERT of horizontal speed to vertical and keeps KEEP of the horizontal.
     private static final float STEP_CROUCH_VERT     = 1.20f;
     private static final float STEP_CROUCH_KEEP     = 0.25f;
-    private static final float STEP_DASH_VERT       = 0.95f;
-    private static final float STEP_DASH_KEEP       = 0.50f;
 
 
     // friction / acceleration
@@ -481,7 +479,7 @@ public final class WarsowPmove {
             // tick, fighting the step-up and jittering.
             if (step > 0 && isFree(player, player.getBoundingBox().offset(0, step, 0))) {
                 player.setPosition(player.getX(), player.getY() + step, player.getZ());
-                // Step-up launch: crouch-jump takes priority over dash. Uses the buffered pre-clip
+                // Step-up launch: only crouch-jump pops you up. Uses the buffered pre-clip
                 // speed if we clipped a wall, and goes airborne so the pop applies.
                 double useX = (s.wallBufferX > 0) ? s.wallSaveX : vx;
                 double useZ = (s.wallBufferZ > 0) ? s.wallSaveZ : vz;
@@ -494,17 +492,6 @@ public final class WarsowPmove {
                     s.wallBufferX = 0;
                     s.wallBufferZ = 0;
                     player.setOnGround(false);
-                } else if (specialKeyDown && s.walljumpTime <= 0 && !s.walljumpCount) {
-                    // dash step-up: 95% of horizontal speed → height, keep 50% horizontal.
-                    // Consumes the wall-bounce cooldown.
-                    vx = useX * STEP_DASH_KEEP;
-                    vz = useZ * STEP_DASH_KEEP;
-                    vy = jumpSpeed + STEP_DASH_VERT * hspeed;
-                    s.walljumpTime = PM_WALLJUMP_TIMEDELAY;
-                    s.walljumpCount = true;
-                    s.wallBufferX = 0;
-                    s.wallBufferZ = 0;
-                    player.setOnGround(false); // stay airborne so the launch velocity carries up
                 } else {
                     s.forceGround = true;   // start next tick grounded (applied at frame end below)
                 }
