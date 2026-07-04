@@ -55,4 +55,4 @@ Most of these are tunable in-game (see Configuration).
 
 ## License
 
-GPL-2.0
+LGPL-3.0-or-later — see [LICENSE](LICENSE) (LGPLv3) and [COPYING](COPYING) (GPLv3, which LGPLv3 extends).

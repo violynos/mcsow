@@ -8,7 +8,7 @@
         "vio"
     ],
     "contact": {},
-    "license": "GPL-2.0",
+    "license": "LGPL-3.0-or-later",
     "icon": "assets/mcsow/icon.png",
     "environment": "*",
     "entrypoints": {
