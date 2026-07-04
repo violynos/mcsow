@@ -473,12 +473,18 @@ public final class WarsowPmove {
         // mid-air (not just grounded), as long as there's ground close below.
         if ((blockedX || blockedZ) && hasGroundBelow(player)) {
             double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, STEP_UP_HEIGHT);
-            // Only step up if raising the player straight up by `step` is actually clear
-            // (where setPosition will put us). Without this, a ceiling above the current
-            // spot — e.g. a fence with a block over it — makes MC shove us back down every
-            // tick, fighting the step-up and jittering.
-            if (step > 0 && isFree(player, player.getBoundingBox().offset(0, step, 0))) {
-                player.setPosition(player.getX(), player.getY() + step, player.getZ());
+            // Lift a bit MORE than the exact ledge height: round the step up to 0.1 and add
+            // another 0.1 of margin. The exact step only just clears the lip, so the next
+            // tick's downward gravity probe drags us back below it before the horizontal move
+            // carries us onto the ledge — that undershoot is what pinned us in an oscillation.
+            // The extra height gives the horizontal move a tick to complete on top.
+            // Only commit if raising straight up by `lift` is actually clear (no ceiling above,
+            // e.g. a block over a fence); fall back to the exact step, else skip.
+            double lift = Math.ceil(step * 10.0) / 10.0 + 0.1;
+            Box sbox = player.getBoundingBox();
+            if (!isFree(player, sbox.offset(0, lift, 0))) lift = step;
+            if (step > 0 && isFree(player, sbox.offset(0, lift, 0))) {
+                player.setPosition(player.getX(), player.getY() + lift, player.getZ());
                 // Step-up launch: only crouch-jump pops you up. Uses the buffered pre-clip
                 // speed if we clipped a wall, and goes airborne so the pop applies.
                 double useX = (s.wallBufferX > 0) ? s.wallSaveX : vx;
@@ -493,6 +499,17 @@ public final class WarsowPmove {
                     s.wallBufferZ = 0;
                     player.setOnGround(false);
                 } else {
+                    // Regular step-up onto the ledge. If we were descending into it, this is
+                    // a landing: run fall damage (respecting the launch-height clamp) and clear
+                    // the accumulated fall FIRST, then kill the downward velocity — otherwise
+                    // the next tick's ground-contact gravity probe drags us straight back below
+                    // the ledge lip, where the side re-blocks us, pinning us in an oscillation.
+                    if (vy < 0.0) {
+                        double fd = player.fallDistance;
+                        if (fd > 0.0) player.handleFallDamage(fd, 1.0F, player.getDamageSources().fall());
+                        player.fallDistance = 0.0;
+                        vy = 0.0;
+                    }
                     s.forceGround = true;   // start next tick grounded (applied at frame end below)
                 }
                 blockedX = false;
@@ -821,6 +838,13 @@ public final class WarsowPmove {
         if (hvel.lengthSquared() < 1.0e-9) return;
         double cos = hvel.normalize().dotProduct(normal.multiply(-1.0));
         if (cos <= WJ_ANGLE_COS) return;
+
+        // Prefer a step-up over a walljump: if the wall we'd bounce off is actually a low ledge
+        // we could step onto (steppable height, ground below, and clearance to rise into), don't
+        // flag it walljump-eligible — so holding dash into a low ledge steps you up instead of
+        // walljumping off it. Tall walls (no clearance within STEP_UP_HEIGHT) stay eligible.
+        double sUp = tryStepUp(player, moveX ? stepX : 0.0, moveZ ? stepZ : 0.0, STEP_UP_HEIGHT);
+        if (sUp > 0 && hasGroundBelow(player) && isFree(player, box.offset(0, sUp, 0))) return;
 
         s.wallEligible = true;
         s.wallNormal = normal;
