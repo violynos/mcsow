@@ -1,4 +1,4 @@
-# McSow — Warsow Movement Fabric Mod
+# mcsow — Warsow Movement Fabric Mod
 
 Ports Warsow/Warfork movement (dash, walljump, bunnyhop, air control) into Minecraft, replacing vanilla player motion entirely by cancelling `travel()` in a mixin.
 

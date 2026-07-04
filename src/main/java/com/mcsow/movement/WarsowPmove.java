@@ -1,5 +1,7 @@
 package com.mcsow.movement;
 
+import net.minecraft.block.BlockState;
+import net.minecraft.block.BubbleColumnBlock;
 import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.enchantment.Enchantments;
@@ -368,6 +370,18 @@ public final class WarsowPmove {
         // ---- water / ground / air move → this tick's displacement in Warsow units ----
         Vec3d dispWs;
         if (inWater) {
+            // Bubble columns: soul sand drives you up, magma drags you down. Mirror vanilla's
+            // per-tick vertical caps (blocks/tick → Warsow units/sec via 1/(FT·UNIT_SCALE)).
+            BlockState bc = player.getEntityWorld().getBlockState(player.getBlockPos());
+            if (bc.getBlock() instanceof BubbleColumnBlock) {
+                double k = 1.0 / (FT * UNIT_SCALE);
+                if (bc.get(BubbleColumnBlock.DRAG)) {
+                    vel = new Vec3d(vel.x, Math.max(vel.y - 0.03 * k, -0.3 * k), vel.z);
+                } else {
+                    vel = new Vec3d(vel.x, Math.min(vel.y + 0.06 * k, 0.7 * k), vel.z);
+                }
+            }
+
             // Air control horizontally. Jump AND dash push you up (dash uses the jump path
             // here); held → keep rising. Friction hits horizontal (submerged only) and the
             // upward jump/dash velocity, but NOT gravity, which is halved. Sub-stepped.

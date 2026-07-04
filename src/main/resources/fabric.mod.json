@@ -2,7 +2,7 @@
     "schemaVersion": 1,
     "id": "mcsow",
     "version": "${version}",
-    "name": "McSow",
+    "name": "mcsow",
     "description": "Warsow movement for Minecraft - dash, walljump, bunnyhop, and more!",
     "authors": [
         "vio"

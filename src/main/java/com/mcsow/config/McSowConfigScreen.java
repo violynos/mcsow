@@ -19,7 +19,7 @@ public final class McSowConfigScreen {
 
         ConfigBuilder builder = ConfigBuilder.create()
                 .setParentScreen(parent)
-                .setTitle(Text.literal("McSow Movement"))
+                .setTitle(Text.literal("mcsow Movement"))
                 .setSavingRunnable(McSowConfig::save);
 
         ConfigEntryBuilder eb = builder.entryBuilder();

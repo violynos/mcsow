@@ -1,6 +1,6 @@
-# McSow
+# mcsow
 
-**McSow is a Minecraft mod that implements [Warsow](https://en.wikipedia.org/wiki/Warsow_(video_game))/Warfork movement in Minecraft as faithfully and cleanly as possible.**
+**mcsow is a Minecraft mod that implements [Warsow](https://en.wikipedia.org/wiki/Warsow_(video_game))/Warfork movement in Minecraft as faithfully and cleanly as possible.**
 
 It replaces vanilla player motion entirely — cancelling `travel()` in a mixin and running a direct port of Warsow's `gs_pmove.c` physics — so you get real air-strafing, bunnyhopping, dashing, and walljumping in Minecraft.
 
