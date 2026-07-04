@@ -198,9 +198,14 @@ public final class StrafeHud {
         matrices.popMatrix();
     }
 
-    // project a yaw offset (degrees from view centre) to a screen x
+    // project a yaw offset (degrees from view centre) to a screen x. Clamp just under ±90°:
+    // past 90° tan() flips sign and returns a huge NEGATIVE x, which slips past the min/max-
+    // with-pivot clamps and stretches the triangle across the screen (looking sideways at high
+    // speed, where diff±optimal crosses 90°). Clamped, the edge stays far off-screen on the
+    // correct side, so the pivot clamp collapses the triangle to zero width instead.
     private static int projectX(int cx, double scale, double angleDeg) {
-        return (int) Math.round(cx + Math.tan(Math.toRadians(angleDeg)) * scale);
+        double a = Math.max(-89.0, Math.min(89.0, angleDeg));
+        return (int) Math.round(cx + Math.tan(Math.toRadians(a)) * scale);
     }
 
     // Draw a true filled triangle (A,B,C) in screen pixels. The 1.21.11 GUI is retained-mode and
