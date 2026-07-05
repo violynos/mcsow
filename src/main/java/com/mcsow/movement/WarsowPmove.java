@@ -46,47 +46,36 @@ public final class WarsowPmove {
         PM_AIRACCELERATE  = d.airAccelerate;
         PM_AIRCONTROL     = d.airControl;
         AIR_SUBSTEPS      = Math.max(1, d.airSubsteps);
-        CROUCH_JUMP_RATIO = d.crouchJumpRatio;
     }
 
     // === Warsow constants (exact values from gs_pmove.cpp) ===
     // All velocities in Warsow units/sec; multiplied by UNIT_SCALE * FT at output.
 
     private static final float FT = 0.05f; // 20 ticks/sec
-    private static final float UNIT_SCALE = 0.01875f; // 1 Warsow unit → MC blocks
+    // 1 Warfork unit → MC blocks. Exact: 320 units = 9 blocks, so 1 unit = 9/320 = 0.028125.
+    private static final float UNIT_SCALE = 9.0f / 320.0f;
 
     // water movement
     private static final float WATER_GRAVITY_SCALE  = 0.5f;  // half gravity while in water (no friction on it)
     private static final float WATER_FRICTION_SCALE = 0.1f;  // water friction = ground friction × 0.1
     private static float       WATER_UPSPEED        = 280.0f; // up-boost from jump/dash held in water (friction-limited)
 
-    // config-tunable (see McSowConfig / applyConfig); GRAVITY_COMPENSATE is fixed at 1.4
-    private static float GRAVITY                  = 1120.0f;
-    private static final float GRAVITY_SCALE      = 1.0f; // no scaling, raw Warsow
-    private static final float GRAVITY_COMPENSATE = 1120.0f / 800.0f; // = 1.4
+    // config-tunable (see McSowConfig / applyConfig)
+    private static float GRAVITY                  = 800.0f; // raw Warfork sv_gravity
+    private static final float GRAVITY_SCALE      = 1.0f; // no scaling, raw Warfork
 
     // speeds
     public static final float DEFAULT_PLAYERSPEED   = 320.0f;
     public static final float DEFAULT_WALKSPEED     = 160.0f;
     public static final float DEFAULT_CROUCHEDSPEED = 100.0f;
-    public static float DEFAULT_JUMPSPEED           = 280.0f * GRAVITY_COMPENSATE; // config-tunable
+    public static float DEFAULT_JUMPSPEED           = 280.0f; // raw Warfork (config-tunable)
     public static float DEFAULT_DASHSPEED           = 450.0f; // minimum dash speed (config-tunable)
-
-    // crouch-jump (on the ground): add this fraction of horizontal speed to vertical, keep
-    // CROUCH_JUMP_KEEP of the horizontal. (ratio config-tunable)
-    private static float CROUCH_JUMP_RATIO          = 0.75f;
-    private static final float CROUCH_JUMP_KEEP     = 0.50f;
-    // step-up launch (hitting a ledge while crouch held → crouch-jump pop):
-    // adds VERT of horizontal speed to vertical and keeps KEEP of the horizontal.
-    private static final float STEP_CROUCH_VERT     = 1.20f;
-    private static final float STEP_CROUCH_KEEP     = 0.25f;
-
 
     // friction / acceleration
     private static final float PM_FRICTION         = 8.0f;
     private static final float DEFAULT_SLIPPERINESS = 0.6f; // vanilla ground slipperiness (ice ≈ 0.98)
     private static final float PM_ACCELERATE       = 12.0f;
-    private static float PM_AIRACCELERATE          = 1.075f; // Warsow 1.0, tuned ×1.075 (config-tunable)
+    private static float PM_AIRACCELERATE          = 1.0f; // raw Warfork (config-tunable)
     private static final float PM_AIRDECELERATE    = 2.0f;
     private static final float PM_DECELERATE       = 12.0f;
     private static final float PM_WATERFRICTION    = 1.0f;
@@ -105,19 +94,15 @@ public final class WarsowPmove {
     public static final int    PM_DASHJUMP_TIMEDELAY        = 1000;
     public static final int    PM_SPECIAL_CROUCH_INHIBIT    = 400;
     public static final int    PM_AIRCONTROL_BOUNCE_DELAY   = 200;
-    public static final int    PM_CROUCHSLIDE_TIMEDELAY     = 700;
-    public static final int    PM_CROUCHSLIDE_FADE          = 500;
-    public static final int    PM_CROUCHSLIDE_CONTROL       = 3;
-    public static final int    CROUCHTIME                   = 100;
 
-    private static float PM_DASHUPSPEED             = 174.0f * 1.15f * GRAVITY_COMPENSATE; // dash height ×1.15 (config-tunable)
+    private static float PM_DASHUPSPEED             = 174.0f; // raw Warfork (config-tunable)
     private static final float PM_OVERBOUNCE         = 1.01f;
     private static final float STEPSIZE              = 18.0f;
     private static final float SPEEDKEY              = 500.0f;
 
     // walljump (Warsow gs_pmove.c PM_CheckWallJump, non-OLDWALLJUMP path)
     public static final int    PM_WALLJUMP_TIMEDELAY = PM_DASHJUMP_TIMEDELAY; // own cooldown, same length as dash
-    private static float PM_WJUPSPEED                = 330.0f * 1.09f * GRAVITY_COMPENSATE; // walljump up-boost ×1.09 (config-tunable)
+    private static float PM_WJUPSPEED                = 330.0f; // raw Warfork (config-tunable)
     private static final float PM_WJBOUNCEFACTOR     = 0.3f;  // outward push along wall normal
     private static final float PM_WJMINSPEED         = (DEFAULT_WALKSPEED + DEFAULT_PLAYERSPEED) * 0.5f; // 240
     // proximity (MC blocks) used by the wall-momentum buffer to test if a wall cleared
@@ -159,9 +144,6 @@ public final class WarsowPmove {
         int wallBufferX;         // frames left to restore the clamped X speed
         int wallBufferZ;
         boolean forceGround;     // step-up just happened → treat next tick as grounded
-        int crouchTime;
-        int crouchSlideTime;
-        boolean crouchSliding;
         boolean wasInAir;
         boolean jumped;
         double lastHudSpeed;     // strafe HUD: previous-tick horizontal speed (for accel)
@@ -301,7 +283,7 @@ public final class WarsowPmove {
         s.jumped = false;
         if (!inWater && !walljumped) {
             if (justLanded && jumpPressed) s.jumpHeld = false;
-            vel = checkJump(vel, s, onGround, jumpPressed, crouchPressed, jumpSpeed);
+            vel = checkJump(vel, s, onGround, jumpPressed, jumpSpeed);
         }
 
         // ---- direction vectors from yaw (needed for dash) ----
@@ -315,14 +297,6 @@ public final class WarsowPmove {
         int ms = 50;
         if (s.dashTime > 0) s.dashTime = Math.max(0, s.dashTime - ms);
         if (s.walljumpTime > 0) s.walljumpTime = Math.max(0, s.walljumpTime - ms);
-        if (s.crouchTime > 0) s.crouchTime = Math.max(0, s.crouchTime - ms);
-        if (s.crouchSlideTime > 0) {
-            s.crouchSlideTime = Math.max(0, s.crouchSlideTime - ms);
-            if (s.crouchSlideTime <= 0) {
-                s.crouchSlideTime = 0;
-                s.crouchSliding = false;
-            }
-        }
 
         // ---- if jumped this tick, skip dash entirely (no cooldown). No dash/walljump in
         //      water — dash becomes an upward push in the water branch. ----
@@ -485,33 +459,18 @@ public final class WarsowPmove {
             if (!isFree(player, sbox.offset(0, lift, 0))) lift = step;
             if (step > 0 && isFree(player, sbox.offset(0, lift, 0))) {
                 player.setPosition(player.getX(), player.getY() + lift, player.getZ());
-                // Step-up launch: only crouch-jump pops you up. Uses the buffered pre-clip
-                // speed if we clipped a wall, and goes airborne so the pop applies.
-                double useX = (s.wallBufferX > 0) ? s.wallSaveX : vx;
-                double useZ = (s.wallBufferZ > 0) ? s.wallSaveZ : vz;
-                double hspeed = Math.sqrt(useX * useX + useZ * useZ);
-                if (crouchPressed) {
-                    // crouch-jump step-up: 120% of horizontal speed → height, keep 25% horizontal
-                    vx = useX * STEP_CROUCH_KEEP;
-                    vz = useZ * STEP_CROUCH_KEEP;
-                    vy = jumpSpeed + STEP_CROUCH_VERT * hspeed;
-                    s.wallBufferX = 0;
-                    s.wallBufferZ = 0;
-                    player.setOnGround(false);
-                } else {
-                    // Regular step-up onto the ledge. If we were descending into it, this is
-                    // a landing: run fall damage (respecting the launch-height clamp) and clear
-                    // the accumulated fall FIRST, then kill the downward velocity — otherwise
-                    // the next tick's ground-contact gravity probe drags us straight back below
-                    // the ledge lip, where the side re-blocks us, pinning us in an oscillation.
-                    if (vy < 0.0) {
-                        double fd = player.fallDistance;
-                        if (fd > 0.0) player.handleFallDamage(fd, 1.0F, player.getDamageSources().fall());
-                        player.fallDistance = 0.0;
-                        vy = 0.0;
-                    }
-                    s.forceGround = true;   // start next tick grounded (applied at frame end below)
+                // Step-up onto the ledge. If we were descending into it, this is a landing:
+                // run fall damage (respecting the launch-height clamp) and clear the accumulated
+                // fall FIRST, then kill the downward velocity — otherwise the next tick's ground-
+                // contact gravity probe drags us straight back below the ledge lip, where the side
+                // re-blocks us, pinning us in an oscillation.
+                if (vy < 0.0) {
+                    double fd = player.fallDistance;
+                    if (fd > 0.0) player.handleFallDamage(fd, 1.0F, player.getDamageSources().fall());
+                    player.fallDistance = 0.0;
+                    vy = 0.0;
                 }
+                s.forceGround = true;   // start next tick grounded (applied at frame end below)
                 blockedX = false;
                 blockedZ = false;
             }
@@ -616,14 +575,6 @@ public final class WarsowPmove {
         float slip = player.getEntityWorld().getBlockState(player.getVelocityAffectingPos()).getBlock().getSlipperiness();
         drop *= Math.max(0.0, (1.0 - slip) / (1.0 - DEFAULT_SLIPPERINESS));
 
-        if (s.crouchSliding) {
-            if (s.crouchSlideTime < PM_CROUCHSLIDE_FADE) {
-                drop *= 1.0 - Math.sqrt((double) s.crouchSlideTime / PM_CROUCHSLIDE_FADE);
-            } else {
-                drop = 0;
-            }
-        }
-
         double newSpd = Math.max(0, spd - drop);
         double ratio = (spd > 0.001) ? newSpd / spd : 0;
         return new Vec3d(vel.x * ratio, vel.y, vel.z * ratio);
@@ -655,7 +606,7 @@ public final class WarsowPmove {
     //  JUMP (Warsow PM_CheckJump)
     // ================================================================
     private static Vec3d checkJump(Vec3d vel, PlayerMoveState s, boolean onGround,
-                                    boolean jumpPressed, boolean crouchPressed, float jumpSpeed) {
+                                    boolean jumpPressed, float jumpSpeed) {
         if (!jumpPressed) {
             s.jumpHeld = false;
             return vel;
@@ -666,23 +617,7 @@ public final class WarsowPmove {
         s.jumpHeld = true;
         s.jumped = true;
 
-        if (crouchPressed) {
-            // crouch-jump: trade horizontal momentum for height. Convert 75% of the
-            // horizontal speed into vertical and keep 25% as horizontal. At high speed
-            // the big vertical component "launches" you upward; the reduced horizontal
-            // lets you land precisely on a block (awkward terrain).
-            // If we clipped a wall within the last WALL_BUFFER_FRAMES ticks, use the
-            // pre-collision (buffered) speed so a crouch-jump right after a wall hit keeps
-            // the momentum we went in with.
-            double useX = (s.wallBufferX > 0) ? s.wallSaveX : vel.x;
-            double useZ = (s.wallBufferZ > 0) ? s.wallSaveZ : vel.z;
-            double hspeed = Math.sqrt(useX * useX + useZ * useZ);
-            vel = new Vec3d(useX * CROUCH_JUMP_KEEP, jumpSpeed + CROUCH_JUMP_RATIO * hspeed, useZ * CROUCH_JUMP_KEEP);
-            s.wallBufferX = 0;
-            s.wallBufferZ = 0;
-        } else {
-            vel = new Vec3d(vel.x, jumpSpeed, vel.z);
-        }
+        vel = new Vec3d(vel.x, jumpSpeed, vel.z);
 
         s.dashTime = 0;
         s.dashing = false;

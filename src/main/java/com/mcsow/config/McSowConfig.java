@@ -26,16 +26,15 @@ public final class McSowConfig {
         public boolean strafeHud = false;    // show the strafe HUD overlay
         public boolean speedOnXpBar = false; // show speed as the XP-bar level number (hides the HUD's own number)
 
-        // --- movement tunables (defaults = current tuning) ---
-        public float gravity         = 1120.0f;             // downward accel (Warsow units/s^2)
-        public float jumpSpeed       = 280.0f * 1.4f;       // 392  — jump up-velocity
+        // --- movement tunables (defaults = raw Warfork values, at the correct 9/320 scale) ---
+        public float gravity         = 800.0f;              // downward accel (Warfork units/s^2)
+        public float jumpSpeed       = 280.0f;              // jump up-velocity
         public float dashSpeed       = 450.0f;              // minimum dash horizontal speed
-        public float dashUpSpeed     = 174.0f * 1.15f * 1.4f; // 280.14 — dash vertical velocity
-        public float wallJumpUpSpeed = 330.0f * 1.09f * 1.4f; // 503.58 — walljump vertical velocity
-        public float airAccelerate   = 1.075f;              // quake-strafe / air accel
+        public float dashUpSpeed     = 174.0f;              // dash vertical velocity
+        public float wallJumpUpSpeed = 330.0f;              // walljump vertical velocity
+        public float airAccelerate   = 1.0f;                // quake-strafe / air accel
         public float airControl      = 150.0f;              // air-control redirect strength
         public int   airSubsteps     = 3;                   // air physics sub-steps per tick
-        public float crouchJumpRatio = 0.75f;               // fraction of horizontal → vertical
         public float hungerMultiplier = 3.0f;               // ×vanilla exhaustion (hunger drain rate)
     }
 

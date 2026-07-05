@@ -49,11 +49,11 @@ public final class McSowConfigScreen {
 
         ConfigCategory air = builder.getOrCreateCategory(Text.literal("Air"));
         air.addEntry(eb.startFloatField(Text.literal("Air acceleration"), cfg.airAccelerate)
-                .setDefaultValue(1.075f)
+                .setDefaultValue(1.0f)
                 .setTooltip(
                     Text.literal("How hard you accelerate mid-air toward your wish direction."),
                     Text.literal("Drives quake-strafe / strafe-jump speed gain — higher = faster speed build."),
-                    Text.literal("Warsow default 1.0; McSow default 1.075."))
+                    Text.literal("Warfork default 1.0."))
                 .setSaveConsumer(v -> cfg.airAccelerate = v)
                 .build());
         air.addEntry(eb.startFloatField(Text.literal("Air control"), cfg.airControl)
@@ -80,14 +80,14 @@ public final class McSowConfigScreen {
                 .setSaveConsumer(v -> cfg.dashSpeed = v)
                 .build());
         dash.addEntry(eb.startFloatField(Text.literal("Dash up-speed"), cfg.dashUpSpeed)
-                .setDefaultValue(174.0f * 1.15f * 1.4f)
+                .setDefaultValue(174.0f)
                 .setTooltip(
                     Text.literal("Vertical velocity added by a dash — the dash's hop height."),
-                    Text.literal("Higher = dash hops higher. Tuned so a dash clears about half a block."))
+                    Text.literal("Higher = dash hops higher. Warfork default 174."))
                 .setSaveConsumer(v -> cfg.dashUpSpeed = v)
                 .build());
         dash.addEntry(eb.startFloatField(Text.literal("Walljump up-speed"), cfg.wallJumpUpSpeed)
-                .setDefaultValue(330.0f * 1.09f * 1.4f)
+                .setDefaultValue(330.0f)
                 .setTooltip(
                     Text.literal("Vertical velocity of a walljump — how high you pop when you kick off a wall."),
                     Text.literal("Higher = more height per walljump, so you climb walls faster."))
@@ -96,25 +96,17 @@ public final class McSowConfigScreen {
 
         ConfigCategory jump = builder.getOrCreateCategory(Text.literal("Jump & Gravity"));
         jump.addEntry(eb.startFloatField(Text.literal("Jump speed"), cfg.jumpSpeed)
-                .setDefaultValue(280.0f * 1.4f)
+                .setDefaultValue(280.0f)
                 .setTooltip(Text.literal("Upward velocity of a normal jump. Higher = you jump higher."))
                 .setSaveConsumer(v -> cfg.jumpSpeed = v)
                 .build());
         jump.addEntry(eb.startFloatField(Text.literal("Gravity"), cfg.gravity)
-                .setDefaultValue(1120.0f)
+                .setDefaultValue(800.0f)
                 .setTooltip(
                     Text.literal("Downward acceleration. Higher = you fall faster and jumps are shorter/snappier."),
-                    Text.literal("McSow default 1120 (scaled for Minecraft feel; raw Warsow is ~850)."))
+                    Text.literal("Warfork default 800."))
                 .setSaveConsumer(v -> cfg.gravity = v)
                 .build());
-        jump.addEntry(eb.startFloatField(Text.literal("Crouch-jump conversion"), cfg.crouchJumpRatio)
-                .setDefaultValue(0.75f).setMin(0f).setMax(1f)
-                .setTooltip(
-                    Text.literal("Fraction of horizontal speed converted to height on a crouch-jump."),
-                    Text.literal("0.75 = trade 75% of your speed for a big vertical pop and keep 25% horizontal."))
-                .setSaveConsumer(v -> cfg.crouchJumpRatio = v)
-                .build());
-
         ConfigCategory misc = builder.getOrCreateCategory(Text.literal("Misc"));
         misc.addEntry(eb.startFloatField(Text.literal("Hunger multiplier"), cfg.hungerMultiplier)
                 .setDefaultValue(3.0f).setMin(0f).setMax(20f)
