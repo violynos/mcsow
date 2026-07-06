@@ -51,6 +51,7 @@ public final class WarsowPmove {
     // === Warsow constants (exact values from gs_pmove.cpp) ===
     // All velocities in Warsow units/sec; multiplied by UNIT_SCALE * FT at output.
 
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("mcsow"); // trace → latest.log
     private static final float FT = 0.05f; // 20 ticks/sec
     // 1 Warfork unit → MC blocks. Exact: 320 units = 9 blocks, so 1 unit = 9/320 = 0.028125.
     private static final float UNIT_SCALE = 9.0f / 320.0f;
@@ -112,6 +113,10 @@ public final class WarsowPmove {
     // (angle < 89°) makes the player eligible for a walljump next frame.
     private static final int    WJ_PLANES            = 9;
     private static final double WJ_PLANE_SPACING     = 0.25;
+    // Only the UPPER detector planes count as a walljumpable wall: a stair/slab ramp riser is short
+    // (≤ ~1 block) and only trips the low planes — you slide up it. A real wall is tall enough to
+    // trip a plane at least this high above the feet, so you can still walljump off genuine walls.
+    private static final double WJ_WALL_MIN_HEIGHT    = 1.1;
     private static final double WJ_ANGLE_COS         = Math.cos(Math.toRadians(89.0));
 
     // wall-momentum buffer: frames to keep a wall-clamped speed and restore it if the
@@ -123,6 +128,16 @@ public final class WarsowPmove {
     private static final double STEP_UP_HEIGHT        = 0.6;
     // how far below the feet a surface may be for step-up to apply (so it works mid-air)
     private static final double STEP_GROUND_DROP     = 1.0;
+
+    // --- Ramp physics (Warfork rampslide/rampjump). MC has no sloped collision normals, so we
+    //     synthesise one from the surface height 1 block ahead along our velocity and clip
+    //     velocity along it: horizontal speed is redirected up the slope (slide), and at the
+    //     top/edge that upward component launches you (jump). ---
+    private static final double RAMP_LOOKAHEAD   = Math.sqrt(2.0);      // sample this far ahead (√2 so diagonal slabs count)
+    private static final double RAMP_MIN_RISE    = 0.1;                 // rises below this = flat → no ramp
+    private static final double RAMP_MAX_ANGLE   = Math.toRadians(55.0);// steeper than this = wall, not a ramp
+    private static final double RAMP_OVERBOUNCE  = 1.01;               // Quake GS_ClipVelocity overbounce (near-lossless)
+    private static final int    RAMP_HYST        = 3;                  // ticks of flat tolerated before a ramp is "ended"
 
     private static final java.util.Map<Integer, PlayerMoveState> STATES = new java.util.HashMap<>();
 
@@ -144,6 +159,12 @@ public final class WarsowPmove {
         int wallBufferX;         // frames left to restore the clamped X speed
         int wallBufferZ;
         boolean forceGround;     // step-up just happened → treat next tick as grounded
+        boolean onRamp;          // on a ramp this tick
+        boolean wasOnRamp;       // onRamp last tick → the crest tick launches
+        double  rampSlope;       // tan(slope) of the ramp we're on, for the crest launch
+        int     rampHyst;        // ticks of flat we tolerate before declaring the ramp ended (hysteresis)
+        double  rampUpX, rampUpZ;// unit up-the-slope horizontal dir (so we only launch moving up it)
+        double  smoothY;         // smooth glide height while on a ramp (overrides MC's stepped Y)
         boolean wasInAir;
         boolean jumped;
         double lastHudSpeed;     // strafe HUD: previous-tick horizontal speed (for accel)
@@ -254,6 +275,8 @@ public final class WarsowPmove {
         // by jumping off, via checkJump + the airborne recheck below)
         boolean onGround = player.isOnGround() || s.forceGround;
         s.forceGround = false;
+        s.wasOnRamp = s.onRamp;   // remember last tick's ramp state before we recompute it
+        s.onRamp = false;
         boolean justLanded = onGround && s.wasInAir;
 
         // ---- water state ----
@@ -297,6 +320,7 @@ public final class WarsowPmove {
         int ms = 50;
         if (s.dashTime > 0) s.dashTime = Math.max(0, s.dashTime - ms);
         if (s.walljumpTime > 0) s.walljumpTime = Math.max(0, s.walljumpTime - ms);
+        if (s.rampHyst > 0) s.rampHyst--; // ramp hysteresis decays every tick (persists across airborne hops)
 
         // ---- if jumped this tick, skip dash entirely (no cooldown). No dash/walljump in
         //      water — dash becomes an upward push in the water branch. ----
@@ -320,7 +344,11 @@ public final class WarsowPmove {
         boolean stayAirborne = justLanded && (s.jumped || s.dashing);
 
         // ---- friction (ground only; water handles its own friction in its branch) ----
-        if (!inWater && onGround && !stayAirborne) {
+        // Friction is suppressed ONLY on a ramp while you HOLD dash — that keeps your speed the whole
+        // way up the slope (Warfork); release dash and friction grips you (you slow down). On flat
+        // ground friction always applies (no lingering dash-window slide).
+        boolean suppressFriction = s.rampHyst > 0 && specialKeyDown;
+        if (!inWater && onGround && !stayAirborne && !suppressFriction) {
             vel = applyFriction(vel, s, player, FT);
         }
 
@@ -369,13 +397,23 @@ public final class WarsowPmove {
                 dispWs = dispWs.add(vel.multiply(subFt));
             }
         } else if (onGround) {
+            // Ramp DETECTION only (the smooth glide + launch happen in the reconciliation below).
+            // Sample the surface slope 1 block ahead; hysteresis keeps us "on ramp" through the flat
+            // treads of a staircase so detection doesn't flicker.
+            Vec3d rn = rampNormal(player, vel);
+            boolean detected = rn != null && vel.dotProduct(rn) < 0.0;
+            if (detected) {
+                s.rampHyst = RAMP_HYST;
+                double cos = rn.y;
+                s.rampSlope = Math.sqrt(Math.max(0.0, 1.0 - cos * cos)) / cos; // tan(slope)
+                double hl = Math.sqrt(rn.x * rn.x + rn.z * rn.z);
+                if (hl > 1.0e-6) { s.rampUpX = -rn.x / hl; s.rampUpZ = -rn.z / hl; } // up-the-slope dir
+            }
+            s.onRamp = s.rampHyst > 0;
             if (!stayAirborne) {
                 vel = groundMove(vel, wishdir, wishspeed, FT);
             }
-            // Apply gravity as a small downward probe so MC keeps firm ground contact.
-            // MC only sets onGround when a downward move is blocked; without this,
-            // delta.y == 0 makes onGround flicker off every other tick. The floor
-            // collision zeroes this vertical component again via the reconciliation below.
+            // Gravity as a small downward probe so MC keeps firm ground contact.
             vel = vel.add(0, -GRAVITY * FT * GRAVITY_SCALE, 0);
             dispWs = vel.multiply(FT);
         } else {
@@ -441,36 +479,69 @@ public final class WarsowPmove {
         // ceiling/floor: just kill vertical velocity (no momentum buffer)
         if (blockedY) vy = 0;
 
+        // ---- SMOOTH RAMP GLIDE ----
+        // While on a ramp, override MC's stepped Y with a smoothly-rising height (horizontal distance
+        // moved × the slope) so you glide up the incline instead of bouncing/stalling on each step.
+        // Clamped to the real surface so it can't drift. Step-up is skipped on ramps (this replaces it).
+        // When you run off the top, the crest branch converts your speed into an upward launch.
+        if (s.onRamp) {
+            Box rb = player.getBoundingBox();
+            double distXZ = Math.sqrt(actual.x * actual.x + actual.z * actual.z);
+            if (!s.wasOnRamp) s.smoothY = rb.minY;      // entering the ramp: start at current feet
+            s.smoothY += distXZ * s.rampSlope;          // rise with horizontal progress (the smooth incline)
+            double rcx = (rb.minX + rb.maxX) * 0.5, rcz = (rb.minZ + rb.maxZ) * 0.5;
+            double surf = groundHeightAt(player, rcx, rcz, rb.minY, 1.5, 1.5);
+            // Re-anchor to the surface ONLY on gross drift — do NOT clamp to the stepped surface every
+            // tick (that snapped 0.5 per riser = the bumpiness). Between anchors it's a smooth line.
+            if (!Double.isNaN(surf) && (s.smoothY < surf - 0.2 || s.smoothY > surf + 1.2)) s.smoothY = surf;
+            if (isFree(player, rb.offset(0, s.smoothY - rb.minY, 0))) {
+                player.setPosition(player.getX(), s.smoothY, player.getZ());
+                vy = 0;                 // Y is driven by smoothY, not velocity
+                s.forceGround = true;   // stay glued to the smooth slope
+                blockedX = false;       // horizontal handled by MC above the steps — don't clamp
+                blockedZ = false;
+            }
+        } else if (s.wasOnRamp) {
+            // CREST: just ran off the top of the ramp — convert speed into an upward launch, but only
+            // if still moving UP the slope (not if you reversed and walked back off it).
+            double hlen = Math.sqrt(vx * vx + vz * vz);
+            if (vx * s.rampUpX + vz * s.rampUpZ > 0.0) vy = Math.max(vy, hlen * s.rampSlope);
+        }
+
+        // --- TRACE ---
+        boolean trBx0 = blockedX, trBz0 = blockedZ, trBy0 = blockedY;
+        double trHlenIn = Math.sqrt(vx * vx + vz * vz);
+        double trStep = -1; boolean trStepFired = false;
+
         // Step-up: if we hit a low ledge (≤ STEP_UP_HEIGHT, e.g. a slab) with a surface
         // within 1 block below our feet, snap the player up onto it and KEEP horizontal
         // speed instead of clamping — so stepping onto slabs/edges is smooth. Works
         // mid-air (not just grounded), as long as there's ground close below.
-        if ((blockedX || blockedZ) && hasGroundBelow(player)) {
+        // Step-up over a ledge/riser: lift onto it and KEEP horizontal speed instead of clamping.
+        // This runs on ramps too — the risers of a slab/stair ramp are ≤ step height, and stepping
+        // over them is exactly what keeps your speed (no grip); on a ramp we preserve the launch vy.
+        if (!s.onRamp && (blockedX || blockedZ) && hasGroundBelow(player)) {
             double step = tryStepUp(player, blockedX ? delta.x : 0.0, blockedZ ? delta.z : 0.0, STEP_UP_HEIGHT);
-            // Lift a bit MORE than the exact ledge height: round the step up to 0.1 and add
-            // another 0.1 of margin. The exact step only just clears the lip, so the next
-            // tick's downward gravity probe drags us back below it before the horizontal move
-            // carries us onto the ledge — that undershoot is what pinned us in an oscillation.
-            // The extra height gives the horizontal move a tick to complete on top.
-            // Only commit if raising straight up by `lift` is actually clear (no ceiling above,
-            // e.g. a block over a fence); fall back to the exact step, else skip.
+            trStep = step;
+            // Lift a bit MORE than the exact ledge height (round to 0.1 + 0.1 margin) so the next
+            // tick's gravity probe can't drag us back below the lip before the horizontal move
+            // completes on top. Commit only if raising by `lift` is clear; else fall back to step.
             double lift = Math.ceil(step * 10.0) / 10.0 + 0.1;
             Box sbox = player.getBoundingBox();
             if (!isFree(player, sbox.offset(0, lift, 0))) lift = step;
             if (step > 0 && isFree(player, sbox.offset(0, lift, 0))) {
+                trStepFired = true;
                 player.setPosition(player.getX(), player.getY() + lift, player.getZ());
-                // Step-up onto the ledge. If we were descending into it, this is a landing:
-                // run fall damage (respecting the launch-height clamp) and clear the accumulated
-                // fall FIRST, then kill the downward velocity — otherwise the next tick's ground-
-                // contact gravity probe drags us straight back below the ledge lip, where the side
-                // re-blocks us, pinning us in an oscillation.
+                // Climb the riser and settle grounded (keeps horizontal speed — the risers of a ramp
+                // are climbed here, no grip). Ramp launches happen at the CREST in the ground branch,
+                // not here. If descending into it, land: fall damage + zero downward vel first.
                 if (vy < 0.0) {
                     double fd = player.fallDistance;
                     if (fd > 0.0) player.handleFallDamage(fd, 1.0F, player.getDamageSources().fall());
                     player.fallDistance = 0.0;
                     vy = 0.0;
                 }
-                s.forceGround = true;   // start next tick grounded (applied at frame end below)
+                s.forceGround = true;
                 blockedX = false;
                 blockedZ = false;
             }
@@ -506,6 +577,13 @@ public final class WarsowPmove {
             }
         }
         vel = new Vec3d(vx, vy, vz);
+
+        if (s.onRamp || trBx0 || trBz0) {
+            LOGGER.info(String.format(
+                "[MCSOW-REC] onRamp=%b onG=%b dash=%b | hIn=%.1f hOut=%.1f vy=%.1f smoothY=%.3f slope=%.2f",
+                s.onRamp, onGround, specialKeyDown,
+                trHlenIn, Math.sqrt(vx * vx + vz * vz), vy, s.smoothY, s.rampSlope));
+        }
 
         // ---- store reconciled velocity for next tick ----
         s.velocity = vel;
@@ -755,6 +833,9 @@ public final class WarsowPmove {
         double nx = 0, nz = 0;
         for (int i = 0; i < WJ_PLANES; i++) {
             double y = box.minY + i * WJ_PLANE_SPACING;
+            // Only the upper planes count: a ramp riser (stair/slab, ≤ ~1 block) trips only the low
+            // ones and should be slid up, not walljumped. A real (tall) wall reaches up here.
+            if (y - box.minY < WJ_WALL_MIN_HEIGHT) continue;
             Box plane = new Box(box.minX, y, box.minZ, box.maxX, y + e, box.maxZ);
             // Skip a slice whose plane is already inside a block at its current position: a real
             // wall only blocks the offset (next-frame) plane on one side, never the un-offset one.
@@ -796,11 +877,14 @@ public final class WarsowPmove {
         if (s.walljumping && vel.y < 0) s.walljumping = false;
         if (s.walljumpTime <= 0) s.walljumpCount = false;
 
-        // gates: eligible (collision predicted last frame), dash held, airborne, off cooldown
+        // gates: eligible (collision predicted last frame), dash held, airborne, off cooldown.
+        // (Ramp risers no longer reach here — the detector only counts planes above WJ_WALL_MIN_HEIGHT.)
         if (!s.wallEligible || onGround || !specialDown || s.walljumpCount || s.walljumpTime > 0)
             return null;
         // don't walljump in the first 100 ms of a dash jump
         if (s.dashing && s.dashTime > (PM_DASHJUMP_TIMEDELAY - 100)) return null;
+        LOGGER.info(String.format("[MCSOW-WJ] walljump FIRED: onG=%b vy=%.1f wallN=(%.2f,%.2f)",
+                onGround, vel.y, s.wallNormal.x, s.wallNormal.z));
 
         Vec3d normal = s.wallNormal;
         Vec3d wv = s.wallVelocity; // velocity going into the wall (pre-collision)
@@ -867,6 +951,57 @@ public final class WarsowPmove {
             vel.y - dot * normal.y * overbounce,
             vel.z - dot * normal.z * overbounce
         );
+    }
+
+    // Highest solid collision top at the horizontal point (x,z), searched in [refY-down, refY+up].
+    // Returns that Y, or NaN if nothing solid is in range. A thin probe column reads the ACTUAL
+    // surface height at that sub-block position, so stair/slab partial shapes register correctly.
+    private static double groundHeightAt(PlayerEntity player, double x, double z,
+                                         double refY, double up, double down) {
+        final double p = 0.06;        // thin column half-width
+        final double stepY = 0.0625;  // vertical scan resolution
+        for (double y = refY + up; y >= refY - down; y -= stepY) {
+            Box b = new Box(x - p, y - stepY, z - p, x + p, y, z + p);
+            if (!isFree(player, b)) return y;
+        }
+        return Double.NaN;
+    }
+
+    // If the surface rises ahead along our horizontal velocity (stairs / slab / edge), return the
+    // synthesised up-and-back slope normal for a Warfork velocity clip; null if flat, descending,
+    // or too steep (a wall). Look-ahead is one block; if the block ahead is flat (rise < MIN) we
+    // report no ramp, so a flat stretch terminates the ramp rather than chaining to the next block.
+    private static Vec3d rampNormal(PlayerEntity player, Vec3d vel) {
+        double hlen = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        if (hlen < 1.0e-6) return null;
+        double dirX = vel.x / hlen, dirZ = vel.z / hlen;
+        Box box = player.getBoundingBox();
+        double feetY = box.minY;
+        double cx = (box.minX + box.maxX) * 0.5;
+        double cz = (box.minZ + box.maxZ) * 0.5;
+        double y0 = groundHeightAt(player, cx, cz, feetY, 0.25, 0.7); // search deeper so a step-up jump doesn't drop detection
+        double y1 = groundHeightAt(player, cx + dirX * RAMP_LOOKAHEAD, cz + dirZ * RAMP_LOOKAHEAD,
+                                   feetY, RAMP_LOOKAHEAD, RAMP_LOOKAHEAD);
+        double rise = y1 - y0;
+        double angle = Math.atan2(rise, RAMP_LOOKAHEAD);
+        Vec3d normal = null;
+        String reason;
+        if (Double.isNaN(y0) || Double.isNaN(y1)) reason = "NO(NaN)";
+        else if (rise < RAMP_MIN_RISE)             reason = "NO(flat/desc)";
+        else if (angle > RAMP_MAX_ANGLE)           reason = "NO(too-steep)";
+        else {
+            double sin = Math.sin(angle), cos = Math.cos(angle);
+            normal = new Vec3d(-dirX * sin, cos, -dirZ * sin);
+            reason = "RAMP";
+        }
+        // --- TRACE: log ramp detection while actually moving ---
+        if (hlen > 50.0) {
+            LOGGER.info(String.format(
+                "[MCSOW-RAMP] onG=%b vy=%.1f hlen=%.1f feetY=%.3f y0=%.3f y1=%.3f rise=%.3f ang=%.1f dot=%.1f -> %s",
+                player.isOnGround(), vel.y, hlen, feetY, y0, y1, rise, Math.toDegrees(angle),
+                (normal != null ? vel.dotProduct(normal) : 0.0), reason));
+        }
+        return normal;
     }
 
     // ================================================================
